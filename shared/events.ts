@@ -3,6 +3,8 @@ export type Phase = 'lobby' | 'countdown' | 'playing' | 'ended';
 export interface PlayerState {
   id: string; name: string; color: string; x: number; y: number; score: number;
   holding: boolean; connected: boolean; inDuel: boolean; wantedId: string | null;
+  /** Additive Phase 1 proposal for Aryan's approval. Absent means not ready. */
+  ready?: boolean;
 }
 export interface Snapshot {
   tick: number; phase: Phase; remainingMs: number; lastStand: boolean; arenaScale: number;

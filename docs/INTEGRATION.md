@@ -1,73 +1,84 @@
-# Phase 0 integration handoff / contract v0 proposal
+# Crownfall integration handoff — Phase 1
 
-Source of truth for exact TypeScript payloads and acknowledgements: `shared/events.ts`. Constants: `shared/constants.ts`. Aryan must review these before both teammates freeze v0. Further shared-file edits require agreement. No message has been sent to Aryan automatically.
+## Contract status and ownership
 
-## Running and routing
+The exact event names and payload types remain in `shared/events.ts`; constants remain in `shared/constants.ts`. The only additive proposal is optional `PlayerState.ready?: boolean` in snapshots, needed by the host roster and start control. Treat absent as false. **Aryan must approve this addition before it is considered agreed/frozen.** Existing success payloads, failure shapes, event names, and required snapshot fields are unchanged. No message has been sent to Aryan automatically.
 
-Run `npm ci` then `npm run dev`; open `/host` on port 5173. Server port is 3000. Vite proxies `/socket.io` and `/health`. Set `PUBLIC_ORIGIN=http://localhost:5173` before starting the backend for development join links. Production: `npm run build` then `npm start`, with `PORT` and HTTPS `PUBLIC_ORIGIN` configured by Aryan. The persistent server serves the frontend and sockets together.
+Phone/controller, sensors, audio and deployment remain Aryan-owned. The server and host never import controller modules. `client/main.tsx` has not been changed: `/sensor-test` uses Aryan's existing named `SensorTestPage` export; `/play/:roomCode` remains a placeholder until Aryan coordinates connecting his named `ControllerPage` export from `client/controller/ControllerPage.tsx`.
 
-The integration-owned router is `client/main.tsx`. Proposed module connection: Aryan supplies named `ControllerPage` from `client/controller/ControllerPage.tsx` and named `SensorTestPage` from `client/sensor-test/SensorTestPage.tsx`. Coordinate the router import when those exports exist. ControllerPage may read the room code from `location.pathname.split('/')[2]`. These are proposed exports, not existing modules. No controller files were created.
+## Run and deploy
 
-## Acknowledgements
+```sh
+npm ci
+npm run dev
+npm run typecheck
+npm test
+npm run build
+npm start
+```
 
-Success payloads stay flat. All failures use `{ "error": { "code": "ROOM_NOT_FOUND", "message": "Room does not exist." } }`. Narrow with `'error' in result`. No success wrapper is added. Create/join/resume require callbacks. Ready/start/input callbacks are optional, but pass one for explicit rejected-action reporting. Only create, join, clock and disconnect snapshots are operational in Phase 0; all other declared actions acknowledge `NOT_IMPLEMENTED` and do not mutate state.
+Open http://localhost:5173/host during development. Set `PUBLIC_ORIGIN=http://localhost:5173` before starting dev for matching join links. Vite proxies `/socket.io` (including upgrade) and `/health` to port 3000. To use phones on a LAN, substitute the laptop's LAN IP in PUBLIC_ORIGIN and open Vite on that IP. Use HTTPS for motion permissions.
+
+Production uses one persistent Node process serving `dist/client`, SPA routes, `/health` and Socket.IO. Aryan supplies HTTPS termination and `PUBLIC_ORIGIN=https://actual-render-origin` without a trailing slash. `PORT` is honored. The fallback join URL is localhost; PUBLIC_ORIGIN must be set for shared/deployed use. No deployment-provider configuration was modified.
+
+## Typed client integration
+
+From a file directly in `client/controller/`:
 
 ```ts
 import { io, type Socket } from 'socket.io-client';
-import type { ClientToServerEvents, ServerToClientEvents } from '../shared/events.js';
-const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io();
-socket.emit('room:create', result => {
-  if ('error' in result) return console.error(result.error);
-  console.log(result.roomCode, result.hostToken, result.joinUrl);
-});
-// Use a separate phone connection; a connection belongs to one room only.
+import type { ClientToServerEvents, ServerToClientEvents } from '../../shared/events.js';
 const phone: Socket<ServerToClientEvents, ClientToServerEvents> = io();
 phone.emit('room:join', { roomCode: 'ABCDE', name: 'Aryan' }, result => {
   if ('error' in result) return console.error(result.error);
   console.log(result.playerId, result.resumeToken, result.color);
+  // Only after motion permissions and calibration succeed:
+  phone.emit('player:ready', { calibrated: true }, console.log);
 });
-```
-
-Illustrative create success: `{"roomCode":"ABCDE","hostToken":"opaque-secret","joinUrl":"https://example.test/play/ABCDE"}`.
-Join success: `{"playerId":"uuid","resumeToken":"opaque-secret","color":"#ff6b6b"}`. Room codes are uppercase, five characters; names are trimmed, 1–20 characters. Capacity is eight. Duplicate joins on the same connection are rejected. Keep tokens private; do not put them in URLs or announcer events.
-
-## Reserved actions and phone behavior
-
-| Client event | Exact request | Intended later-phase behavior |
-| --- | --- | --- |
-| room:create | callback only | Return roomCode, hostToken, joinUrl |
-| room:join | `{roomCode,name}` | Return playerId, resumeToken, color |
-| room:resume | `{roomCode,resumeToken}` | Recover same identity and score |
-| player:ready | `{calibrated:true}` | Mark calibrated player ready |
-| host:start | `{hostToken}` | Authorize host and require 4+ ready |
-| clock:ping | `{t0}` | Emit clock:pong `{t0,ts}` |
-| input:move | `{seq,x,y}` | Latest intention at 20 Hz; finite axes in [-1,1] |
-| input:yank | `{seq,ts}` | Challenge or duel draw; ts in server epoch milliseconds |
-| input:taunt | `{seq}` | Taunt outside duel range |
-
-Example calls for later phases:
-
-```ts
-phone.emit('room:resume', { roomCode: 'ABCDE', resumeToken: 'stored-token' }, console.log);
-phone.emit('player:ready', { calibrated: true }, console.log);
-socket.emit('host:start', { hostToken: 'stored-host-token' }, console.log);
-phone.volatile.emit('input:move', { seq: 1, x: 0.25, y: -0.5 });
-phone.emit('input:yank', { seq: 2, ts: Date.now() }, console.log);
-phone.emit('input:taunt', { seq: 3 }, console.log);
+phone.on('state:snapshot', snapshot => console.log(snapshot.phase, snapshot.players));
+phone.on('phone:state', state => console.log(state.phase, state.score));
 phone.emit('clock:ping', { t0: performance.now() });
 phone.on('clock:pong', ({ t0, ts }) => console.log(t0, ts));
 ```
 
-Clock replies use `Date.now()` epoch milliseconds. Aryan owns the lowest-RTT clock-offset estimator; client `ts` remains untrusted. Synchronization cannot eliminate latency or cheating. Sequence deduplication, movement rate limits, skew validation and simulation are later-phase work, not active guarantees. Create/join currently have a per-connection 100 ms throttle; it is not global abuse protection.
+A separate host socket calls `socket.emit('room:create', callback)` then `socket.emit('host:start', {hostToken}, callback)`. Creation takes callback only, no payload. One connection belongs to exactly one room and one role. Keep tokens private; do not put them in URLs. Room codes are five uppercase characters from A–Z excluding I/O and digits 2–9. Names are trimmed, 1–20 printable characters.
 
-`state:snapshot` contains tick, phase, remainingMs, lastStand, arenaScale, crown, gem, duel and players; see fully defined structures in `shared/events.ts`. Phase 0 emits snapshots on create/join/disconnect, not at 15 Hz. `phone:state` sends lobby state on join. Later it drives score, holding flashes, inRange eligibility, wantedName and duel feedback. `game:ended` returns scores and winnerIds; it is reserved.
+Successful create: `{"roomCode":"ABCDE","hostToken":"opaque-secret","joinUrl":"https://example.test/play/ABCDE"}`.
+Successful join: `{"playerId":"uuid","resumeToken":"opaque-secret","color":"#ff6b6b"}`.
+Ready/start success: `{"ok":true}`.
+Every acknowledged failure: `{"error":{"code":"NOT_READY","message":"At least four connected, calibrated players are required."}}`.
+Narrow with `'error' in result`. Create/join/resume require callbacks. Ready/start/input callbacks are optional; use them to observe rejections. Apply a client acknowledgement timeout.
 
-Future duel stages: null = ordinary play; ready = HOLD STILL; cue = DRAW; done = result using won/foul; null again = ordinary play. No duel transitions or gameplay events are emitted in Phase 0. `GameEventType` enumerates every agreed event; `DuelReplay` defines typed replay frames. Event-specific optional fields are additive proposals to review before freeze. The host forwards received `game:event` messages as `CustomEvent<GameEvent>('crownfall:game-event')` on window; Aryan's announcer can subscribe independently. No announcer module was created or changed.
+## Event reference
 
-## Reconnect limitations and gate checks
+| Client → server | Payload | Status |
+| --- | --- | --- |
+| room:create | callback only | operational |
+| room:join | {roomCode,name} | operational, lobby only, maximum eight |
+| room:resume | {roomCode,resumeToken} | NOT_IMPLEMENTED |
+| player:ready | {calibrated:true} | operational, lobby only |
+| host:start | {hostToken} | bound host socket + matching room token + four connected ready players |
+| clock:ping | {t0} | operational; clock:pong replies with {t0,ts} |
+| input:move | {seq,x,y} | Phase 2 |
+| input:yank | {seq,ts} | NOT_IMPLEMENTED |
+| input:taunt | {seq} | NOT_IMPLEMENTED |
 
-Phase 0 disconnect marks the avatar disconnected. Resume tokens are returned but not persisted or accepted yet. Host refresh does not recover the room yet. Do not imply resume support in the phone UI until the corresponding server phase. An explicit disconnected state is shown on the host.
+Start transitions lobby → countdown (3000 ms) → playing automatically using monotonic server time. Duplicate starts return INVALID_PHASE. Ready flags clear on disconnect. A player or another room's host cannot start a room even with its token. Errors include INVALID_PAYLOAD, ROOM_NOT_FOUND, ROOM_FULL, ALREADY_JOINED, UNAUTHORIZED, NOT_READY, INVALID_PHASE, RATE_LIMITED and NOT_IMPLEMENTED.
 
-Automated tests use actual Socket.IO clients for host/create/join/validation/clock/disconnect. Run `npm run typecheck`, `npm test`, `npm run build`. For deployment smoke tests, check `/health`, load `/host`, create a room, and connect a Socket.IO client on the same HTTPS origin. Aryan must verify HTTPS/WebSocket upgrade, phone routes and real devices; these have NOT BEEN VERIFIED here.
+State snapshots contain `tick,phase,remainingMs,lastStand,arenaScale,crown,gem,duel,players`. Phase 1 publishes lobby/countdown/playing snapshots at 15 Hz plus changes. No game positions or scores are accepted from clients. Phone state contains `phase,holding,score,inRange,wantedName,duel`; during these foundation phases, holding/inRange are false, score is zero, wantedName/duel are null. Render the status phase, not fabricated local gameplay.
 
-Gate 0 requires both teammates can run the scaffold and agree to freeze the contract. Merge the Swayam branch through normal review; do not overwrite controller, audio or deployment work. Later requirements remain gated: rooms lifecycle and auth, 30 Hz simulation/15 Hz snapshots, ready/start, real phone inputs, gameplay, reconnect, QR and Phaser.
+Server → client event names: `clock:pong`, `state:snapshot`, `phone:state`, `game:event`, `game:ended`. PLAYER_LEFT is emitted on disconnect; gameplay events and ended are reserved. All structures and event-type names are fully typed in shared/events.ts.
+
+Clock pong ts uses epoch milliseconds (`Date.now()`); simulation/countdown uses monotonic time. Aryan owns offset estimation. Clock sync does not eliminate latency or cheating; yank timestamps are not implemented yet. General actions allow 5/s with burst 20 per connection; clock allows 10/s with burst 16. This is not global anti-abuse protection.
+
+## Limits and future gates
+
+Resume remains NOT_IMPLEMENTED. Refresh does not recover host/player membership; tokens are returned for the future contract but resume tokens are not yet stored. Disconnected avatars stay in the room and occupy slots until cleanup; do not silently rejoin on every reconnect and create duplicates. Show a clear reconnect limitation on the phone. Rooms with no connected host or players are removed after 60 seconds. Active rooms are not removed by cleanup. Closing the HTTP server stops the update interval and releases state.
+
+Crown pickup, scoring, duels, round completion, rematches, revenge, gems and Last Stand are not implemented. Future duel stages: null ordinary play; ready HOLD STILL; cue DRAW; done result using won/foul; null resumes ordinary play. The host forwards game:event as a typed detail payload on window event `crownfall:game-event`, so Aryan's announcer can subscribe independently. Do not modify the announcer to make the arena work.
+
+## Integration verification
+
+Automated tests use actual Socket.IO clients and bounded timeouts, including capacity, host authorization, ready status, countdown, validation and disconnect. Deployed HTTPS and physical phones are NOT VERIFIED.
+
+Aryan: approve the optional readiness field; connect the controller route in client/main.tsx by agreement; verify same-origin Socket.IO over deployed HTTPS; test iPhone/Android motion permissions. Connection diagnosis: check /health first, then browser Network for /socket.io upgrade or polling, server process logs, PUBLIC_ORIGIN, matching origin, room code and acknowledgement errors. A healthy frontend alone does not confirm the persistent WebSocket backend.

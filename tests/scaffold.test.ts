@@ -17,7 +17,7 @@ test('rooms have unique codes, random tokens and a strict eight-player capacity'
   assert.deepEqual(manager.join(first.roomCode, 'Ninth'), { error: { code: 'ROOM_FULL', message: 'Room has eight players.' } });
 });
 
-test('HTTP and real Socket.IO host/join/clock/validation/disconnect flow', async t => {
+test('HTTP and real Socket.IO host/join/clock/validation/disconnect flow', { timeout: 6000 }, async t => {
   const server = createApp();
   server.http.listen(0, '127.0.0.1');
   await once(server.http, 'listening');
@@ -50,7 +50,7 @@ test('HTTP and real Socket.IO host/join/clock/validation/disconnect flow', async
   const rejected = await invalid.emitWithAck('room:join', { roomCode: 'BAD', name: '' });
   assert.ok('error' in rejected && rejected.error.code === 'INVALID_PAYLOAD');
   const unsupported = await host.emitWithAck('host:start', { hostToken: created.hostToken });
-  assert.ok('error' in unsupported && unsupported.error.code === 'NOT_IMPLEMENTED');
+  assert.ok('error' in unsupported && unsupported.error.code === 'NOT_READY');
   const disconnected = new Promise<import('../shared/events.js').Snapshot>(resolve => host.once('state:snapshot', resolve));
   phone.disconnect();
   assert.equal((await disconnected).players[0].connected, false);
