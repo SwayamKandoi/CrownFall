@@ -32,10 +32,15 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
       if (player) io.to(socketId).emit('phone:state', { phase: snapshot.phase, holding: player.holding, score: player.score, inRange: false, wantedName: null, duel: null });
     }
   }
+  let nextSnapshotAt = performance.now();
   const interval = setInterval(() => {
     rooms.advance();
-    for (const code of rooms.rooms.keys()) broadcast(code);
-  }, 1000 / RULES.snapshotHz);
+    const now = performance.now();
+    if (now >= nextSnapshotAt) {
+      nextSnapshotAt = Math.max(nextSnapshotAt + 1000 / RULES.snapshotHz, now);
+      for (const code of rooms.rooms.keys()) broadcast(code);
+    }
+  }, 1000 / RULES.simulationHz);
   interval.unref();
   http.on('close', () => { clearInterval(interval); rooms.dispose(); memberships.clear(); });
   io.on('connection', socket => {
@@ -89,7 +94,14 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
       if (clock.take() && exact(payload, ['t0']) && finite(payload.t0)) socket.emit('clock:pong', { t0: payload.t0, ts: Date.now() });
     });
     socket.on('room:resume', (_payload, ack) => reject(ack, failure('NOT_IMPLEMENTED', 'Resume is not available yet.')));
-    for (const event of ['input:move', 'input:yank', 'input:taunt'] as const) {
+    socket.on('input:move', (payload, ack) => {
+      const member = memberships.get(socket.id);
+      if (!member?.playerId) return reject(ack, failure('UNAUTHORIZED', 'Join as a player before moving.'));
+      const room = rooms.rooms.get(member.code);
+      const result = room?.game.move(member.playerId, payload) ?? failure('ROOM_NOT_FOUND', 'Room does not exist.');
+      if (typeof ack === 'function') ack(result);
+    });
+    for (const event of ['input:yank', 'input:taunt'] as const) {
       socket.on(event, (_payload: unknown, ack?: Ack<{ ok: true }>) => reject(ack, failure('NOT_IMPLEMENTED', 'Movement and gameplay arrive in later phases.')));
     }
     socket.on('disconnect', () => {

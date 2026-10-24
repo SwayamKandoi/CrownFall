@@ -1,4 +1,4 @@
-# Crownfall integration handoff — Phase 1
+# Crownfall integration handoff - Phases 1 and 2
 
 ## Contract status and ownership
 
@@ -59,13 +59,13 @@ Narrow with `'error' in result`. Create/join/resume require callbacks. Ready/sta
 | player:ready | {calibrated:true} | operational, lobby only |
 | host:start | {hostToken} | bound host socket + matching room token + four connected ready players |
 | clock:ping | {t0} | operational; clock:pong replies with {t0,ts} |
-| input:move | {seq,x,y} | Phase 2 |
+| input:move | {seq,x,y} | operational, lobby and playing |
 | input:yank | {seq,ts} | NOT_IMPLEMENTED |
 | input:taunt | {seq} | NOT_IMPLEMENTED |
 
 Start transitions lobby → countdown (3000 ms) → playing automatically using monotonic server time. Duplicate starts return INVALID_PHASE. Ready flags clear on disconnect. A player or another room's host cannot start a room even with its token. Errors include INVALID_PAYLOAD, ROOM_NOT_FOUND, ROOM_FULL, ALREADY_JOINED, UNAUTHORIZED, NOT_READY, INVALID_PHASE, RATE_LIMITED and NOT_IMPLEMENTED.
 
-State snapshots contain `tick,phase,remainingMs,lastStand,arenaScale,crown,gem,duel,players`. Phase 1 publishes lobby/countdown/playing snapshots at 15 Hz plus changes. No game positions or scores are accepted from clients. Phone state contains `phase,holding,score,inRange,wantedName,duel`; during these foundation phases, holding/inRange are false, score is zero, wantedName/duel are null. Render the status phase, not fabricated local gameplay.
+State snapshots contain `tick,phase,remainingMs,lastStand,arenaScale,crown,gem,duel,players`. The server advances fixed 30 Hz simulation steps and publishes snapshots at approximately 15 Hz plus immediate membership/phase changes. No game positions or scores are accepted from clients. Phone state contains `phase,holding,score,inRange,wantedName,duel`; during these foundation phases, holding/inRange are false, score is zero, wantedName/duel are null. Render the status phase, not fabricated local gameplay.
 
 Server → client event names: `clock:pong`, `state:snapshot`, `phone:state`, `game:event`, `game:ended`. PLAYER_LEFT is emitted on disconnect; gameplay events and ended are reserved. All structures and event-type names are fully typed in shared/events.ts.
 
@@ -75,10 +75,47 @@ Clock pong ts uses epoch milliseconds (`Date.now()`); simulation/countdown uses 
 
 Resume remains NOT_IMPLEMENTED. Refresh does not recover host/player membership; tokens are returned for the future contract but resume tokens are not yet stored. Disconnected avatars stay in the room and occupy slots until cleanup; do not silently rejoin on every reconnect and create duplicates. Show a clear reconnect limitation on the phone. Rooms with no connected host or players are removed after 60 seconds. Active rooms are not removed by cleanup. Closing the HTTP server stops the update interval and releases state.
 
-Crown pickup, scoring, duels, round completion, rematches, revenge, gems and Last Stand are not implemented. Future duel stages: null ordinary play; ready HOLD STILL; cue DRAW; done result using won/foul; null resumes ordinary play. The host forwards game:event as a typed detail payload on window event `crownfall:game-event`, so Aryan's announcer can subscribe independently. Do not modify the announcer to make the arena work.
+Crown pickup, scoring, duels, round completion, rematches, revenge, gems and Last Stand are not implemented. Playing is an untimed movement preview; remainingMs stays at 90000 until the full-round phase. The arena crown is decorative. Future duel stages: null ordinary play; ready HOLD STILL; cue DRAW; done result using won/foul; null resumes ordinary play. The host forwards game:event as a typed detail payload on window event `crownfall:game-event`, so Aryan's announcer can subscribe independently. Do not modify the announcer to make the arena work.
 
 ## Integration verification
 
 Automated tests use actual Socket.IO clients and bounded timeouts, including capacity, host authorization, ready status, countdown, validation and disconnect. Deployed HTTPS and physical phones are NOT VERIFIED.
 
 Aryan: approve the optional readiness field; connect the controller route in client/main.tsx by agreement; verify same-origin Socket.IO over deployed HTTPS; test iPhone/Android motion permissions. Connection diagnosis: check /health first, then browser Network for /socket.io upgrade or polling, server process logs, PUBLIC_ORIGIN, matching origin, room code and acknowledgement errors. A healthy frontend alone does not confirm the persistent WebSocket backend.
+
+
+## Phase 2 movement integration
+
+Movement uses the same phone socket that joined the room; no host/controller direct imports are needed. The host receives authoritative snapshots automatically. After successful join, send tilt vectors at approximately 20 Hz:
+
+```ts
+let seq = 0;
+// Called by Aryan's calibrated sensor pipeline, at about 20 Hz:
+function sendTilt(x: number, y: number) {
+  phone.volatile.emit('input:move', { seq: seq++, x, y });
+}
+```
+
+Coordinates: positive x moves right, positive y moves down. seq is a nonnegative safe integer that strictly increases for movement packets for the lifetime of this player connection. Dropped packets and skipped sequence values are fine. A duplicate or lower sequence is rejected as STALE_INPUT. Invalid or rate-limited packets do not replace the last accepted vector or refresh its expiry. Use a movement counter; later yank/taunt sequencing will be documented at their gate.
+
+The server accepts only the exact keys seq,x,y, clamps finite axes to [-1,1], then normalizes vectors longer than one to prevent faster diagonal movement. NaN, Infinity, strings, missing fields, extra keys such as playerId, negative/fractional/unsafe sequence numbers are INVALID_PAYLOAD. Non-player sockets are UNAUTHORIZED. Valid movement allows 30 packets/s with burst eight to tolerate jitter around the expected 20 Hz. Inputs expire after 250 ms. Each avatar center stays at least 18 units inside the 960?540 logical arena. Base speed is 210 units/s. Disconnect clears readiness and movement immediately. Countdown rejects movement with INVALID_PHASE; continue the counter after it ends. Movement is allowed in the lobby for warm-up.
+
+The simulation uses monotonic elapsed time and fixed 1/30-second steps, with at most 250 ms of catch-up work after a process stall. Snapshots include simulation tick. Input commands never accumulate. Phaser renders snapshots with about 100 ms interpolation delay, holding the latest known state when updates stop; connection staleness is shown after two seconds. All scores and gameplay flags remain server-owned.
+
+## Dependency and shared-file coordination
+
+Phase 2 adds Phaser 3 and qrcode runtime packages, @types/qrcode and playwright-core development packages, and an optional test:host script. package-lock.json is updated in place; existing tooling and deployment configuration are preserved. Run npm ci after merging. No central router, Vite configuration or TypeScript configuration was changed. The initial readiness proposal remains the only protocol addition awaiting Aryan approval; no event names or acknowledgement shapes changed.
+
+The host QR code encodes /play/:roomCode on the current browser origin. The room:create canonical joinUrl still uses PUBLIC_ORIGIN, so configure that variable for tools/clients using the acknowledgement directly. The host cannot know whether Aryan's controller is mounted; the current router placeholder is honestly identified on the host.
+
+## Four-phone gate checklist
+
+1. Merge/review the Swayam branch with Aryan's work; agree on optional snapshot.players[].ready and controller router exports.
+2. Start with npm ci, npm run dev, or build/start behind Aryan's deployed HTTPS origin.
+3. Open /host, create a room, scan its QR code on four separate devices after the controller route is connected.
+4. On each phone join, grant permissions, calibrate, send player:ready and stream input:move. Check each name/color and ready indicator appears on the host.
+5. Verify Start stays disabled with three ready players, enables at four, counts down for three seconds and becomes playing automatically.
+6. Move all four avatars independently. Stop sending from one phone: it should stop within 250 ms. Disconnect it: other avatars should keep moving.
+7. Verify iPhone Safari, Android Chrome, deployed HTTPS Socket.IO upgrade/polling, mobile lock/unlock limitations and venue network. These real-device/deployment checks remain NOT VERIFIED locally.
+
+Repeatable server evidence: npm test runs four/eight Socket.IO clients, separate rooms, invalid/replayed input, timeout/disconnect and cadence tests with bounded timeouts. Tests in tests/multiplayer/, if independently added by QA, have not been overwritten; no such directory existed when work began. The optional npm run test:host verifies the actual production React/Phaser interface in headless Edge and writes dist/verification screenshots. It is separate from npm test so automated server tests do not require an installed browser.
