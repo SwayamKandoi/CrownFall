@@ -16,6 +16,10 @@ const YANK_THRESHOLD = 18;     // m/s²; real yanks ~40, tilting < 6 (5 iPhones 
 const YANK_COOLDOWN_MS = 600;
 const TILT_FREEZE_MS = 300;    // a yank jerks the phone; don't let it steer
 const NAME_KEY = 'crownfall:name';
+const DUEL_ARM_MS = 800;        // ignore the tail of the yank that started the duel
+const STILL_WARN = 4;           // m/s² during HOLD STILL that earns a (local-only) warning
+
+interface DuelInfo { role: 'challenger' | 'holder'; myMs: number | null; oppMs: number | null; iFouled: boolean; oppFouled: boolean; winnerId?: string; resolved: boolean }
 
 function readName(): string {
   try { return localStorage.getItem(NAME_KEY) ?? ''; } catch { return ''; }
@@ -38,6 +42,8 @@ export function ControllerPage() {
   const [rtt, setRtt] = useState<number>();
   const [flash, setFlash] = useState<Flash>(null);
   const [banner, setBanner] = useState('');
+  const [duelInfo, setDuelInfo] = useState<DuelInfo>();
+  const [stillWarn, setStillWarn] = useState(false);
 
   const socket = useRef<GameSocket>();
   const clock = useRef<ClockSync>();
@@ -50,6 +56,9 @@ export function ControllerPage() {
   const playerRef = useRef<JoinResult>();
   const lastYank = useRef(-Infinity);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>();
+  const duelRef = useRef<{ startedAt: number; reacted: boolean } | null>(null);
+  const duelInfoRef = useRef<DuelInfo>();
+  const stillWarnRef = useRef(false);
 
   function showFlash(kind: Flash, text = '', ms = 700) {
     clearTimeout(flashTimer.current);
@@ -68,7 +77,17 @@ export function ControllerPage() {
       const prev = phoneRef.current;
       phoneRef.current = next;
       setPhone(next);
-      if (next.phase === 'playing' && prev?.phase === 'playing') {
+      const pd = prev?.duel?.stage, nd = next.duel?.stage;
+      if (nd === 'ready' && pd !== 'ready') {
+        duelRef.current = { startedAt: performance.now(), reacted: false };
+        stillWarnRef.current = false; setStillWarn(false);
+        clearTimeout(flashTimer.current); setFlash(null); setBanner('');
+        vibrate(40);
+      }
+      if (nd === 'cue' && pd !== 'cue') vibrate(120);
+      if (nd === 'done' && pd !== 'done') vibrate(next.duel?.won ? [40, 40, 120] : [200]);
+      if (!nd && pd) { duelRef.current = null; }
+      if (next.phase === 'playing' && prev?.phase === 'playing' && !next.duel && !prev.duel) {
         if (!prev.holding && next.holding) { showFlash('gold', '👑 GOT IT', 900); vibrate([40, 40, 80]); }
         if (prev.holding && !next.holding) { showFlash('red', 'STOLEN!', 1100); vibrate([120, 60, 120]); }
       }
@@ -78,7 +97,28 @@ export function ControllerPage() {
     s.on('game:event', (e: GameEvent) => {
       window.dispatchEvent(new CustomEvent('crownfall:game-event', { detail: e }));
       const me = playerRef.current?.playerId;
-      if (e.type === 'CROWN_STOLEN' && e.actorId === me) { showFlash('gold', '🫳 YOU STOLE IT', 1000); vibrate([40, 40, 80]); }
+      const inDuel = Boolean(phoneRef.current?.duel) || e.type.startsWith('DUEL_');
+      if (e.type === 'CROWN_STOLEN' && e.actorId === me && !inDuel) { showFlash('gold', '🫳 YOU STOLE IT', 1000); vibrate([40, 40, 80]); }
+      if (!me) return;
+      const updateDuel = (patch: Partial<DuelInfo>) => {
+        if (!duelInfoRef.current) return;
+        duelInfoRef.current = { ...duelInfoRef.current, ...patch };
+        setDuelInfo(duelInfoRef.current);
+      };
+      if (e.type === 'DUEL_START' && (e.actorId === me || e.victimId === me)) {
+        duelInfoRef.current = { role: e.actorId === me ? 'challenger' : 'holder', myMs: null, oppMs: null, iFouled: false, oppFouled: false, resolved: false };
+        setDuelInfo(duelInfoRef.current);
+      }
+      if (e.type === 'DUEL_FOUL' && duelInfoRef.current && !duelInfoRef.current.resolved) {
+        if (e.actorId === me) updateDuel({ iFouled: true });
+        else if (e.victimId === me) updateDuel({ oppFouled: true });
+      }
+      if (e.type === 'DUEL_RESULT' && (e.actorId === me || e.victimId === me)) {
+        const r = e.replay;
+        const mine = r ? (r.a === me ? r.aMs : r.bMs) : null;
+        const theirs = r ? (r.a === me ? r.bMs : r.aMs) : null;
+        updateDuel({ myMs: mine, oppMs: theirs, winnerId: e.winnerId, resolved: true });
+      }
     });
     s.on('game:ended', result => { clearTimeout(flashTimer.current); setFlash(null); setBanner(''); setEnded(result); vibrate(200); });
     const rttId = setInterval(() => clock.current && Number.isFinite(clock.current.rtt) && setRtt(clock.current.rtt), 1000);
@@ -96,11 +136,26 @@ export function ControllerPage() {
     });
     const yank = new YankDetector(YANK_THRESHOLD, YANK_COOLDOWN_MS);
     const offM = onMotion(m => {
-      if (!inGame || !yank.push(m)) return;
+      const fired = yank.push(m);
+      if (!inGame) return;
+      const duel = phoneRef.current?.duel;
+      const d = duelRef.current;
+      if (duel && (duel.stage === 'ready' || duel.stage === 'cue') && d) {
+        const armed = performance.now() - d.startedAt > DUEL_ARM_MS;
+        // Local-only nudge; the server judges fouls purely by yank timing.
+        if (duel.stage === 'ready' && armed && m.magnitude > STILL_WARN && !stillWarnRef.current) { stillWarnRef.current = true; setStillWarn(true); }
+        if (fired && (armed || duel.stage === 'cue') && !d.reacted) {
+          d.reacted = true;
+          lastYank.current = performance.now();
+          socket.current?.emit('input:yank', { seq: ++seq.current, ts: clock.current?.serverNow() ?? Date.now() });
+        }
+        return;
+      }
+      if (!fired) return;
       lastYank.current = performance.now();
       const ps = phoneRef.current;
       if (ps?.phase !== 'playing') return;
-      if (!ps.inRange) { showFlash('miss', 'Too far', 400); return; }
+      if (!ps.inRange) { if (!ps.holding) showFlash('miss', 'Not in range', 400); return; }
       socket.current?.emit('input:yank', { seq: ++seq.current, ts: clock.current?.serverNow() ?? Date.now() });
       showFlash('yank', 'YANK!', 300);
       vibrate(60);
@@ -234,7 +289,11 @@ export function ControllerPage() {
         </section>
       )}
 
-      {step === 'in-game' && !ended && (
+      {step === 'in-game' && !ended && phone?.duel && (
+        <DuelScreen stage={phone.duel.stage} won={phone.duel.won} info={duelInfo} stillWarn={stillWarn} />
+      )}
+
+      {step === 'in-game' && !ended && !phone?.duel && (
         <section>
           {phase === 'playing' ? (
             <>
@@ -270,6 +329,45 @@ export function ControllerPage() {
 
       {error && <p className="ctl-err">{error}</p>}
     </main>
+  );
+}
+
+function DuelScreen({ stage, won, info, stillWarn }: { stage: 'ready' | 'cue' | 'done'; won?: boolean; info?: DuelInfo; stillWarn: boolean }) {
+  const role = info?.role;
+  if (stage === 'ready') return (
+    <section className="ctl-duel">
+      <p className="ctl-kicker">{role === 'holder' ? 'YOU\u2019VE BEEN CHALLENGED' : 'DUEL'}</p>
+      <h1 className="ctl-duel-big">HOLD STILL…</h1>
+      <p>{role === 'holder' ? 'Defend the crown. Yank the instant DRAW! appears.' : 'Yank the instant DRAW! appears. Too early is a foul.'}</p>
+      {stillWarn && <p className="ctl-duel-warn">Steady! Yanking before DRAW is a foul.</p>}
+    </section>
+  );
+  if (stage === 'cue') return (
+    <section className="ctl-duel ctl-duel-cue">
+      <h1 className="ctl-duel-draw">DRAW!</h1>
+      <p className="ctl-duel-sub">Yank now</p>
+    </section>
+  );
+  const ms = (v: number | null | undefined) => (v == null ? null : `${Math.round(v)} ms`);
+  let title: string, detail: string;
+  if (won) {
+    title = role === 'challenger' ? 'CROWN STOLEN' : 'DEFENDED';
+    detail = info?.oppFouled ? 'They yanked too early.' : info?.oppMs != null ? `${ms(info.myMs)} vs ${ms(info.oppMs)}` : ms(info?.myMs) ? `${ms(info?.myMs)} · they were too slow` : 'You win the draw.';
+  } else if (info?.iFouled) {
+    title = 'FOUL'; detail = 'You yanked before DRAW!';
+  } else if (info && !info.winnerId) {
+    title = 'NO WINNER'; detail = info.oppFouled ? 'Both of you jumped the gun.' : 'Nobody drew in time. The holder keeps the crown.';
+  } else if (info?.myMs == null) {
+    title = 'TOO SLOW'; detail = info?.oppMs != null ? `They drew in ${ms(info.oppMs)}` : 'You didn\u2019t yank in time.';
+  } else {
+    title = 'BEATEN'; detail = `${ms(info.myMs)} vs ${ms(info.oppMs)}`;
+  }
+  return (
+    <section className={`ctl-duel ${won ? 'ctl-duel-win' : 'ctl-duel-lose'}`}>
+      <p className="ctl-kicker">DUEL RESULT</p>
+      <h1 className="ctl-duel-big">{title}</h1>
+      <p className="ctl-duel-sub">{detail}</p>
+    </section>
   );
 }
 

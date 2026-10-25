@@ -27,3 +27,12 @@
 .ctl-pad-sm{max-width:150px;margin:8px 0}.ctl-pad-sm .ctl-dot{width:20px;height:20px;margin:-10px}
 .ctl-board{list-style:none;padding:0;margin:12px 0}.ctl-board li{display:flex;justify-content:space-between;padding:10px 12px;border-radius:10px;background:#171b27;margin:6px 0}
 .ctl-board li.ctl-me{outline:2px solid var(--pc)}
+.ctl:has(.ctl-duel){background:radial-gradient(circle at 50% 42%,#2a1013 0,#050608 62%)}
+.ctl:has(.ctl-duel-win){background:radial-gradient(circle at 50% 42%,#4a3a10 0,#050608 65%)}
+.ctl-duel{text-align:center}
+.ctl-duel .ctl-kicker{color:#ff8a8a!important}
+.ctl-duel-big{font-size:46px!important;line-height:1.05}
+.ctl-duel-draw{font:900 104px system-ui!important;color:#ff6b6b;text-shadow:0 0 40px rgba(255,107,107,.6);margin:0!important;animation:ctl-pop .15s ease-out}
+.ctl-duel-sub{font:800 22px system-ui!important;color:#f7f3e8!important}
+.ctl-duel-warn{color:#ff8a8a!important;font-weight:700}
+.ctl-duel-win .ctl-duel-big{color:#f6ce68}
