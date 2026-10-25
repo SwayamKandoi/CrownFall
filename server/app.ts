@@ -10,12 +10,14 @@ import { RoomManager, failure, type Room } from './RoomManager.js';
 import { exact, finite, roomCode, RateLimit } from './validation.js';
 
 interface Membership { code: string; playerId?: string }
-export function createApp(options: { publicOrigin?: string; clientDir?: string; emptyTtlMs?: number } = {}) {
+export function createApp(options: { publicOrigin?: string; clientDir?: string; emptyTtlMs?: number; now?: () => number; epochNow?: () => number } = {}) {
   const app = express();
   app.disable('x-powered-by');
   const http = createServer(app);
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(http, { maxHttpBufferSize: 16_384 });
-  const rooms = new RoomManager(undefined, options.emptyTtlMs);
+  const now = options.now ?? (() => performance.now());
+  const epochNow = options.epochNow ?? (() => Date.now());
+  const rooms = new RoomManager(now, options.emptyTtlMs);
   const memberships = new Map<string, Membership>();
   app.get('/health', (_req, res) => res.json({ ok: true, service: 'crownfall' }));
   const clientDir = options.clientDir ?? fileURLToPath(new URL('../client/', import.meta.url));
@@ -32,9 +34,10 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
     io.to(code).emit('state:snapshot', snapshot);
     for (const [socketId, member] of memberships) if (member.code === code && member.playerId) {
       const player = rooms.rooms.get(code)?.players.get(member.playerId);
-      if (player) io.to(socketId).emit('phone:state', { phase: snapshot.phase, holding: player.holding, score: player.score, inRange: false, wantedName: null, duel: null });
+      if (player) io.to(socketId).emit('phone:state', { phase: snapshot.phase, holding: player.holding, score: player.score, inRange: room.game.inRange(player.id, now()), wantedName: null, duel: null });
     }
     for (const event of room.game.drainEvents()) io.to(code).emit('game:event', event);
+    for (const result of room.game.drainEnded()) io.to(code).emit('game:ended', result);
   }
   const interval = setInterval(() => {
     const changed = new Set(rooms.advance());
@@ -91,24 +94,33 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
         return reject(ack, failure('INVALID_PAYLOAD', 'A hostToken is required.'));
       const member = memberships.get(socket.id);
       if (!member || member.playerId) return reject(ack, failure('UNAUTHORIZED', 'Only the room host can start.'));
+      const game = rooms.rooms.get(member.code)?.game;
+      game?.advance(now());
+      if (game?.hasPendingOutput) broadcast(member.code);
       const result = rooms.start(member.code, payload.hostToken);
       if (typeof ack === 'function') ack(result);
       if (!('error' in result)) broadcast(member.code);
     });
     socket.on('clock:ping', payload => {
-      if (clock.take() && exact(payload, ['t0']) && finite(payload.t0)) socket.emit('clock:pong', { t0: payload.t0, ts: Date.now() });
+      if (clock.take() && exact(payload, ['t0']) && finite(payload.t0)) socket.emit('clock:pong', { t0: payload.t0, ts: epochNow() });
     });
     socket.on('room:resume', (_payload, ack) => reject(ack, failure('NOT_IMPLEMENTED', 'Resume is not available yet.')));
     socket.on('input:move', (payload, ack) => {
       const member = memberships.get(socket.id);
       if (!member?.playerId) return reject(ack, failure('UNAUTHORIZED', 'Join as a player before moving.'));
       const room = rooms.rooms.get(member.code);
-      const result = room?.game.move(member.playerId, payload) ?? failure('ROOM_NOT_FOUND', 'Room does not exist.');
+      const result = room?.game.move(member.playerId, payload, now()) ?? failure('ROOM_NOT_FOUND', 'Room does not exist.');
       if (typeof ack === 'function') ack(result);
     });
-    for (const event of ['input:yank', 'input:taunt'] as const) {
-      socket.on(event, (_payload: unknown, ack?: Ack<{ ok: true }>) => reject(ack, failure('NOT_IMPLEMENTED', 'Movement and gameplay arrive in later phases.')));
-    }
+    socket.on('input:yank', (payload, ack) => {
+      const member = memberships.get(socket.id);
+      if (!member?.playerId) return reject(ack, failure('UNAUTHORIZED', 'Join as a player before yanking.'));
+      const room = rooms.rooms.get(member.code);
+      const result = room?.game.yank(member.playerId, payload, now(), epochNow()) ?? failure('ROOM_NOT_FOUND', 'Room does not exist.');
+      if (typeof ack === 'function') ack(result);
+      // Publish on the existing update loop, batching same-tick actions into one snapshot.
+    });
+    socket.on('input:taunt', (_payload, ack) => reject(ack, failure('NOT_IMPLEMENTED', 'Taunts are not available yet.')));
     socket.on('disconnect', () => {
       const member = memberships.get(socket.id);
       if (!member) return;

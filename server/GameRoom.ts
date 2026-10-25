@@ -1,11 +1,13 @@
-import { RULES } from '../shared/constants.js';
+import { PLAYER_COLORS, RULES } from '../shared/constants.js';
 import { randomUUID } from 'node:crypto';
-import type { ActionError, GameEvent, Phase, PlayerState, Snapshot } from '../shared/events.js';
+import type { ActionError, GameEnded, GameEvent, Phase, PlayerState, Snapshot } from '../shared/events.js';
 import { exact, finite, RateLimit } from './validation.js';
-import { holdPoints, holderSpeed } from './scoring.js';
+import { holdPoints, holderSpeed, rankPlayers } from './scoring.js';
 
 export const INPUT_TIMEOUT_MS = 250;
 export const AVATAR_RADIUS = 18;
+export const YANK_MAX_AGE_MS = 1000;
+export const YANK_FUTURE_TOLERANCE_MS = 150;
 const STEP_MS = 1000 / RULES.simulationHz;
 interface Movement { seq: number; x: number; y: number; receivedAt: number; expiresAt: number; limit: RateLimit }
 const rejected = (code: ActionError['error']['code'], message: string): ActionError => ({ error: { code, message } });
@@ -24,22 +26,42 @@ export class GameRoom {
   private holderDisconnectedAt: number | null = null;
   private accountedAt: number;
   private events: GameEvent[] = [];
+  private ended: GameEnded[] = [];
+  private yankSequences = new Map<string, number>();
+  private cooldowns = new Map<string, number>();
+  private immuneUntil = 0;
   constructor(readonly players: Map<string, PlayerState>, now = performance.now()) {
     this.lastAdvanceAt = now; this.accountedAt = now;
   }
-  get hasPendingOutput(): boolean { return this.events.length > 0; }
+  get hasPendingOutput(): boolean { return this.events.length > 0 || this.ended.length > 0; }
   drainEvents(): GameEvent[] { return this.events.splice(0); }
+  drainEnded(): GameEnded[] { return this.ended.splice(0); }
+  reset(now: number): void {
+    this.phase = 'lobby'; this.countdownEndsAt = 0; this.heldBy = null; this.heldMs = 0;
+    this.crownPosition = { x: RULES.arenaWidth / 2, y: RULES.arenaHeight / 2 };
+    this.holderDisconnectedAt = null; this.immuneUntil = 0; this.cooldowns.clear();
+    this.lastAdvanceAt = now; this.accountedAt = now; this.accumulator = 0;
+    for (const player of this.players.values()) {
+      const slot = Math.max(0, PLAYER_COLORS.findIndex(color => color === player.color));
+      Object.assign(player, { score: 0, holding: false, ready: false, inDuel: false, wantedId: null,
+        x: 180 + slot % 4 * 200, y: slot < 4 ? 180 : 360 });
+    }
+    // Keep sequence history across rounds: delayed old packets must not become new actions.
+    for (const input of this.movement.values()) { input.x = 0; input.y = 0; input.expiresAt = now; }
+    // Keep queued output until broadcast, even if a reset arrives immediately at the deadline.
+  }
   start(now: number): void {
     this.phase = 'countdown'; this.countdownEndsAt = now + RULES.countdownMs;
     // Do not carry tutorial movement through the countdown.
     for (const input of this.movement.values()) { input.x = 0; input.y = 0; input.expiresAt = now; }
   }
   move(id: string, payload: unknown, now = performance.now()): { ok: true } | ActionError {
+    this.advance(now);
     const player = this.players.get(id);
     if (!player?.connected) return rejected('UNAUTHORIZED', 'A connected player is required.');
     if (!exact(payload, ['seq', 'x', 'y']) || !Number.isSafeInteger(payload.seq) || (payload.seq as number) < 0 || !finite(payload.x) || !finite(payload.y))
       return rejected('INVALID_PAYLOAD', 'Expected {seq: nonnegative safe integer, x: finite number, y: finite number}.');
-    if (this.phase !== 'lobby' && this.phase !== 'playing') return rejected('INVALID_PHASE', 'Movement is paused during countdown.');
+    if (this.phase !== 'lobby' && this.phase !== 'playing') return rejected('INVALID_PHASE', 'Movement is only available in lobby and playing phases.');
     const previous = this.movement.get(id);
     if (previous && (payload.seq as number) <= previous.seq) return rejected('STALE_INPUT', 'Movement sequence must increase.');
     const limit = previous?.limit ?? new RateLimit(RULES.inputHz * 1.5, 8, now);
@@ -49,6 +71,40 @@ export class GameRoom {
     const magnitude = Math.max(1, Math.hypot(x, y));
     this.movement.set(id, { seq: payload.seq as number, x: x / magnitude, y: y / magnitude,
       receivedAt: now, expiresAt: now + INPUT_TIMEOUT_MS, limit });
+    return { ok: true };
+  }
+  inRange(id: string, now = this.lastAdvanceAt): boolean {
+    const player = this.players.get(id);
+    const holder = this.heldBy ? this.players.get(this.heldBy) : undefined;
+    return this.phase === 'playing' && now < this.countdownEndsAt + RULES.roundMs &&
+      Boolean(player?.connected && !player.inDuel && holder?.connected && !holder.inDuel && holder.id !== id &&
+        now >= this.immuneUntil && now >= (this.cooldowns.get(id) ?? 0) &&
+        Math.hypot(player.x - holder.x, player.y - holder.y) <= RULES.duelRange);
+  }
+  yank(id: string, payload: unknown, now = performance.now(), epochNow = Date.now()): { ok: true } | ActionError {
+    this.advance(now);
+    const player = this.players.get(id);
+    if (!player?.connected) return rejected('UNAUTHORIZED', 'A connected player is required.');
+    if (!exact(payload, ['seq', 'ts']) || !Number.isSafeInteger(payload.seq) || (payload.seq as number) < 0 || !finite(payload.ts) || payload.ts < 0)
+      return rejected('INVALID_PAYLOAD', 'Expected {seq: nonnegative safe integer, ts: server-epoch milliseconds}.');
+    if (this.phase !== 'playing') return rejected('INVALID_PHASE', 'Yanking requires an active round.');
+    const seq = payload.seq as number;
+    if (seq <= (this.yankSequences.get(id) ?? -1)) return rejected('STALE_INPUT', 'Yank sequence must increase.');
+    const roundEpochStart = epochNow - (now - this.countdownEndsAt);
+    if (payload.ts < epochNow - YANK_MAX_AGE_MS || payload.ts > epochNow + YANK_FUTURE_TOLERANCE_MS || payload.ts < roundEpochStart)
+      return rejected('STALE_INPUT', 'Yank timestamp is stale or outside the synchronized clock window.');
+    // The phone shares a counter across events, but delivery may be out of order between streams.
+    this.yankSequences.set(id, seq);
+    const holder = this.heldBy ? this.players.get(this.heldBy) : undefined;
+    if (!holder?.connected || holder.id === id || player.inDuel || holder.inDuel ||
+        Math.hypot(player.x - holder.x, player.y - holder.y) > RULES.duelRange)
+      return rejected('NOT_READY', 'Move within range of the connected crown holder.');
+    if (now < (this.cooldowns.get(id) ?? 0)) return rejected('NOT_READY', 'Your yank is cooling down.');
+    this.cooldowns.set(id, now + RULES.challengerCooldownMs);
+    if (now < this.immuneUntil) return rejected('NOT_READY', 'The crown holder is temporarily immune.');
+    this.giveCrown(player, now); this.immuneUntil = now + RULES.immunityMs;
+    player.score += RULES.stealPoints;
+    this.events.push({ eventId: randomUUID(), type: 'CROWN_STOLEN', actorId: id, victimId: holder.id, points: RULES.stealPoints });
     return { ok: true };
   }
   disconnect(id: string, now = this.lastAdvanceAt): void {
@@ -61,6 +117,7 @@ export class GameRoom {
   }
   removePlayer(id: string): void {
     this.movement.delete(id);
+    this.yankSequences.delete(id); this.cooldowns.delete(id);
     this.players.delete(id);
   }
   advance(now: number): void {
@@ -85,6 +142,8 @@ export class GameRoom {
       this.updateCrown(this.countdownEndsAt);
     }
     if (this.phase !== 'playing') return;
+    const deadline = this.countdownEndsAt + RULES.roundMs;
+    now = Math.min(now, deadline);
     const holder = this.heldBy ? this.players.get(this.heldBy) : undefined;
     if (holder?.connected) {
       const previousPoints = holdPoints(this.heldMs);
@@ -96,6 +155,10 @@ export class GameRoom {
       this.heldBy = null; this.heldMs = 0; this.holderDisconnectedAt = null;
     }
     this.accountedAt = Math.max(this.accountedAt, now);
+    if (now >= deadline) {
+      this.phase = 'ended';
+      this.ended.push(rankPlayers(this.players.values()));
+    }
   }
   private updateCrown(now: number): void {
     if (!this.heldBy) {
@@ -128,10 +191,11 @@ export class GameRoom {
   }
   snapshot(now = performance.now()): Snapshot {
     return { tick: this.tick, phase: this.phase,
-      remainingMs: this.phase === 'countdown' ? Math.max(0, this.countdownEndsAt - now) : RULES.roundMs,
+      remainingMs: this.phase === 'countdown' ? Math.max(0, this.countdownEndsAt - now) :
+        this.phase === 'playing' ? Math.max(0, this.countdownEndsAt + RULES.roundMs - now) : this.phase === 'ended' ? 0 : RULES.roundMs,
       lastStand: false, arenaScale: 1,
       crown: { ...this.crownPosition, heldBy: this.heldBy, heldMs: this.heldMs },
       gem: null, duel: null, players: [...this.players.values()].map(player => ({ ...player })) };
   }
-  dispose(): void { this.movement.clear(); this.events = []; }
+  dispose(): void { this.movement.clear(); this.yankSequences.clear(); this.cooldowns.clear(); this.events = []; this.ended = []; }
 }

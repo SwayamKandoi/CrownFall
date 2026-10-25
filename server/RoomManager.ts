@@ -50,6 +50,12 @@ export class RoomManager {
     const expected = Buffer.from(room?.hostToken ?? '');
     if (!room || supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
       return failure('UNAUTHORIZED', 'Invalid host token.');
+    room.game.advance(this.now());
+    if (room.game.phase === 'ended') {
+      room.game.reset(this.now());
+      for (const player of room.players.values()) if (!player.connected) room.lobbyDisconnects.set(player.id, this.now());
+      return OK;
+    }
     if (room.game.phase !== 'lobby') return failure('INVALID_PHASE', 'This room has already started.');
     if ([...room.players.values()].filter(p => p.connected && p.ready).length < RULES.minPlayers)
       return failure('NOT_READY', `At least ${RULES.minPlayers} connected, calibrated players are required.`);
