@@ -11,7 +11,7 @@ type Step = 'name' | 'joining' | 'motion' | 'calibrate' | 'ready' | 'in-game';
 type Flash = null | 'gold' | 'red' | 'yank' | 'miss';
 
 const SEND_HZ = 20;
-const SMOOTHING = 0.35;        // EMA factor: 0 = frozen, 1 = raw
+const SMOOTHING = 0.6;         // EMA factor: higher = snappier. 0.35 took ~265 ms to reach 90% of a tilt; 0.6 takes ~125 ms
 const YANK_THRESHOLD = 18;     // m/s²; real yanks ~40, tilting < 6 (5 iPhones tested)
 const YANK_COOLDOWN_MS = 600;
 const TILT_FREEZE_MS = 300;    // a yank jerks the phone; don't let it steer
