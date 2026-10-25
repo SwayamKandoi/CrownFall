@@ -29,19 +29,53 @@ export class Announcer {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
+    clearTimeout(this.pendingTimer);
     if (muted) this.synth?.cancel();
   }
 
   private name(id?: string): string { return (id && this.names.get(id)) || 'Someone'; }
 
+  // Chrome quirks this works around:
+  //  - an utterance that gets garbage-collected mid-speech never ends and wedges the queue,
+  //    so we hold a reference to the current one;
+  //  - speak() right after cancel() is sometimes dropped, so urgent lines wait a beat;
+  //  - the engine can get stuck "speaking" or "paused" forever, so a watchdog resets it.
+  private current?: SpeechSynthesisUtterance;
+  private startedAt = 0;
+  private pendingTimer?: ReturnType<typeof setTimeout>;
+
   /** urgent = interrupt whatever is being said (steals, duels, the winner). */
   say(text: string, urgent = false): void {
-    if (this.muted || !this.synth) return;
-    if (urgent || this.synth.pending) this.synth.cancel();
+    const synth = this.synth;
+    if (this.muted || !synth) return;
+    const stuck = synth.speaking && performance.now() - this.startedAt > 6000;
+    if (stuck || synth.paused) { synth.cancel(); synth.resume(); }
     const u = new SpeechSynthesisUtterance(text);
     if (this.voice) u.voice = this.voice;
     u.rate = 1.12; u.pitch = 1.05; u.volume = 1;
-    this.synth.speak(u);
+    u.onend = u.onerror = () => { if (this.current === u) this.current = undefined; };
+    const go = () => {
+      if (this.muted) return;
+      this.current = u; this.startedAt = performance.now();
+      synth.resume();
+      synth.speak(u);
+    };
+    clearTimeout(this.pendingTimer);
+    if (urgent && (synth.speaking || synth.pending)) {
+      synth.cancel();
+      this.pendingTimer = setTimeout(go, 80);
+    } else if (synth.pending) {
+      // Don't let a backlog build up: keep only the newest queued line.
+      synth.cancel();
+      this.pendingTimer = setTimeout(go, 80);
+    } else go();
+  }
+
+  /** Call from a click so Chrome allows speech, and to un-wedge the engine before a new round. */
+  prime(): void {
+    if (!this.synth) return;
+    this.synth.cancel(); this.synth.resume();
+    this.current = undefined;
   }
 
   snapshot(state: Snapshot): void {
@@ -71,7 +105,7 @@ export class Announcer {
       case 'DUEL_START': this.say(`Duel! ${this.name(e.actorId)} challenges ${this.name(e.victimId)}.`, true); if (!quiet) sfx.duel(); break;
       case 'DUEL_READY': this.say('Hold still.'); break;
       // Speech is too slow for the cue itself; the sound carries DRAW.
-      case 'DUEL_CUE': this.synth?.cancel(); if (!quiet) sfx.draw(); break;
+      case 'DUEL_CUE': if (!quiet) sfx.draw(); break;
       case 'DUEL_FOUL': this.say(`Foul by ${this.name(e.actorId)}!`, true); if (!quiet) sfx.foul(); break;
       case 'DUEL_RESULT':
         if (e.winnerId) this.say(`${this.name(e.winnerId)} wins the draw${e.reactionMs != null ? ` in ${Math.round(e.reactionMs)} milliseconds` : ''}!`, true);

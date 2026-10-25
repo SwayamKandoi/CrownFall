@@ -75,7 +75,7 @@ export function HostPage() {
   function createRoom() {
     const connection = socketRef.current;
     if (!connection?.connected) return;
-    unlockAudio();
+    unlockAudio(); announcer.current?.prime();
     setPending('create'); setError('');
     connection.timeout(5000).emit('room:create', (timeoutError, result) => {
       if (socketRef.current !== connection || !connection.connected) return;
@@ -88,7 +88,7 @@ export function HostPage() {
   async function start() {
     const connection = socketRef.current;
     if (!room || !connection?.connected) return;
-    unlockAudio();
+    unlockAudio(); announcer.current?.prime();
     setPending('start'); setError('');
     try {
       const result = await connection.timeout(5000).emitWithAck('host:start', { hostToken: room.hostToken });
