@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import type { Ack, ActionError, ClientToServerEvents, ServerToClientEvents } from '../shared/events.js';
-import { RULES } from '../shared/constants.js';
+import { RULES, isAvatarId, DEFAULT_AVATAR } from '../shared/constants.js';
 import { RoomManager, failure, type Room } from './RoomManager.js';
 import { exact, finite, roomCode, RateLimit } from './validation.js';
 
@@ -81,9 +81,11 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
       if (typeof ack !== 'function') return;
       if (memberships.has(socket.id)) return ack(failure('ALREADY_JOINED', 'This connection already belongs to a room.'));
       if (!allowed(ack)) return;
-      if (!exact(payload, ['roomCode', 'name']) || !roomCode(payload.roomCode) || typeof payload.name !== 'string' || !payload.name.trim() || payload.name.trim().length > 20 || /[\u0000-\u001f\u007f]/.test(payload.name))
+      const avatarRaw: unknown = typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>).avatar : undefined;
+      const withAvatar = exact(payload, ['roomCode', 'name', 'avatar']) && isAvatarId(avatarRaw);
+      if (!(exact(payload, ['roomCode', 'name']) || withAvatar) || !roomCode(payload.roomCode) || typeof payload.name !== 'string' || !payload.name.trim() || payload.name.trim().length > 20 || /[\u0000-\u001f\u007f]/.test(payload.name))
         return ack(failure('INVALID_PAYLOAD', 'Use a five-character room code and a name of 1–20 printable characters.'));
-      const result = rooms.join(payload.roomCode, payload.name.trim());
+      const result = rooms.join(payload.roomCode, payload.name.trim(), isAvatarId(avatarRaw) ? avatarRaw : DEFAULT_AVATAR);
       if ('error' in result) return ack(result);
       memberships.set(socket.id, { code: payload.roomCode, playerId: result.playerId });
       await socket.join(payload.roomCode);

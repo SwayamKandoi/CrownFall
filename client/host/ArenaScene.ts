@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { RULES } from '../../shared/constants.js';
+import { RULES, AVATARS, isAvatarId } from '../../shared/constants.js';
 import type { Snapshot } from '../../shared/events.js';
 import { SnapshotBuffer } from './interpolation.js';
 
@@ -47,8 +47,11 @@ export class ArenaScene extends Phaser.Scene {
         const color = Phaser.Display.Color.HexStringToColor(player.color).color;
         const shadow = this.add.ellipse(0, 21, 34, 10, 0x000000, 0.35);
         const halo = this.add.circle(0, 0, 24).setStrokeStyle(1, color, 0.4);
-        const body = this.add.circle(0, 0, 18, color).setStrokeStyle(2, 0xffffff, 0.8);
-        const eyes = this.add.text(0, -3, '• •', { fontSize: '13px', fontFamily: 'system-ui', color: '#10202b' }).setOrigin(0.5);
+        const emoji = isAvatarId(player.avatar) ? AVATARS[player.avatar] : null;
+        const body = emoji ? this.add.circle(0, 0, 19, 0x0d1622).setStrokeStyle(3, color, 1) : this.add.circle(0, 0, 18, color).setStrokeStyle(2, 0xffffff, 0.8);
+        const eyes = emoji
+          ? this.add.text(0, 1, emoji, { fontSize: '24px', fontFamily: '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif' }).setOrigin(0.5)
+          : this.add.text(0, -3, '• •', { fontSize: '13px', fontFamily: 'system-ui', color: '#10202b' }).setOrigin(0.5);
         const label = this.add.text(0, -37, player.name, { fontSize: '13px', fontFamily: 'system-ui', color: '#f4f5fa', backgroundColor: '#111c2a' }).setOrigin(0.5);
         const ready = this.add.circle(18, -16, 4, 0x78dab3).setStrokeStyle(1, 0x111c2a);
         avatar = { root: this.add.container(player.x, player.y, [shadow, halo, body, eyes, label, ready]), label, ready, halo, color };

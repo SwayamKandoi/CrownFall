@@ -3,6 +3,8 @@ export type Phase = 'lobby' | 'countdown' | 'playing' | 'ended';
 export interface PlayerState {
   id: string; name: string; color: string; x: number; y: number; score: number;
   holding: boolean; connected: boolean; inDuel: boolean; wantedId: string | null;
+  /** Character pick (AvatarId from shared/constants). Absent means the default. */
+  avatar?: string;
   /** Additive Phase 1 proposal for Aryan's approval. Absent means not ready. */
   ready?: boolean;
 }
@@ -37,7 +39,7 @@ export interface CreateResult { roomCode: string; hostToken: string; joinUrl: st
 export interface JoinResult { playerId: string; resumeToken: string; color: string }
 export interface ClientToServerEvents {
   'room:create': (ack: Ack<CreateResult>) => void;
-  'room:join': (payload: { roomCode: string; name: string }, ack: Ack<JoinResult>) => void;
+  'room:join': (payload: { roomCode: string; name: string; avatar?: string }, ack: Ack<JoinResult>) => void;
   'room:resume': (payload: { roomCode: string; resumeToken: string }, ack: Ack<JoinResult>) => void;
   'player:ready': (payload: { calibrated: true }, ack?: Ack<{ ok: true }>) => void;
   'host:start': (payload: { hostToken: string }, ack?: Ack<{ ok: true }>) => void;

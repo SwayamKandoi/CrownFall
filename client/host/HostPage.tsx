@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import QRCode from 'qrcode';
 import type { ClientToServerEvents, ServerToClientEvents, CreateResult, Snapshot, GameEnded, GameEvent } from '../../shared/events.js';
-import { RULES } from '../../shared/constants.js';
+import { RULES, AVATARS, isAvatarId } from '../../shared/constants.js';
 import { ArenaView } from './ArenaView.js';
 import { DuelOverlay } from './DuelOverlay.js';
 import './host.css';
@@ -149,7 +149,7 @@ export function HostPage() {
               const rank = ranked.findIndex(p => p.score === entry.score) + 1;
               return <li key={entry.playerId} className={(player?.holding ? 'is-holder ' : '') + (!player?.connected ? 'is-offline' : '')}>
                 <span className="cf-avatar" style={{ backgroundColor: player?.color }}>{phase === 'lobby' ? index + 1 : rank}</span>
-                <span className="cf-player-name">{entry.name}{player?.holding && <span className="cf-crown-mark" aria-label="Crown holder"> &#9819;</span>}</span>
+                <span className="cf-player-name">{isAvatarId(player?.avatar) && <span aria-hidden="true">{AVATARS[player.avatar]} </span>}{entry.name}{player?.holding && <span className="cf-crown-mark" aria-label="Crown holder"> &#9819;</span>}</span>
                 {phase !== 'lobby' && <strong className="cf-score">{entry.score}</strong>}
                 <span className={'cf-ready ' + (player?.connected && player.ready ? 'is-ready' : '')}>{!player?.connected ? 'Offline' : phase === 'lobby' ? player.ready ? 'Ready' : 'Calibrating' : ended?.winnerIds.includes(entry.playerId) ? 'Winner' : ''}</span>
               </li>;

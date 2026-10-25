@@ -12,3 +12,9 @@ export const RULES = {
   simulationHz: 30, snapshotHz: 30, inputHz: 20,
 } as const;
 export const PLAYER_COLORS = ['#ff6b6b', '#5eead4', '#a78bfa', '#facc15', '#38bdf8', '#fb923c', '#f472b6', '#a3e635'] as const;
+
+/** Character picks: ids travel over the wire, emoji are only for display. */
+export const AVATARS = { fox: '🦊', frog: '🐸', panda: '🐼', lion: '🦁', octopus: '🐙', tiger: '🐯', robot: '🤖', ghost: '👻' } as const;
+export type AvatarId = keyof typeof AVATARS;
+export const DEFAULT_AVATAR: AvatarId = 'fox';
+export const isAvatarId = (value: unknown): value is AvatarId => typeof value === 'string' && Object.hasOwn(AVATARS, value);

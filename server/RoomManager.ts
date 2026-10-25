@@ -22,7 +22,7 @@ export class RoomManager {
     this.rooms.set(code, { code, hostToken, players, game: new GameRoom(players, this.now(), this.gameOptions), hostConnected: true, lastOccupiedAt: this.now(), lobbyDisconnects: new Map() });
     return { roomCode: code, hostToken, joinUrl: origin + '/play/' + code };
   }
-  join(code: string, name: string): JoinResult | ActionError {
+  join(code: string, name: string, avatar: string = 'fox'): JoinResult | ActionError {
     const room = this.rooms.get(code);
     if (!room) return failure('ROOM_NOT_FOUND', 'Room does not exist.');
     if (room.game.phase !== 'lobby') return failure('INVALID_PHASE', 'Joining is only available in the lobby.');
@@ -31,7 +31,7 @@ export class RoomManager {
     const usedColors = new Set([...room.players.values()].map(player => player.color));
     const slot = PLAYER_COLORS.findIndex(color => !usedColors.has(color));
     const color = PLAYER_COLORS[slot];
-    room.players.set(id, { id, name, color, x: 180 + slot % 4 * 200, y: slot < 4 ? 180 : 360,
+    room.players.set(id, { id, name, color, avatar, x: 180 + slot % 4 * 200, y: slot < 4 ? 180 : 360,
       score: 0, holding: false, connected: true, inDuel: false, wantedId: null, ready: false });
     room.lastOccupiedAt = this.now();
     return { playerId: id, resumeToken: randomBytes(32).toString('hex'), color };

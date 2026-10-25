@@ -4,6 +4,7 @@ import type { ClientToServerEvents, ServerToClientEvents, JoinResult, PhoneState
 import { requestMotionPermission, onOrientation, onMotion, YankDetector, buzz, vibrate, type Orientation } from './sensors.js';
 import { calibrate, tiltToMove, type Calibration } from './calibration.js';
 import { ClockSync } from './clockSync.js';
+import { AVATARS, DEFAULT_AVATAR, isAvatarId, type AvatarId } from '../../shared/constants.js';
 import './controller.css';
 
 type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -16,6 +17,7 @@ const YANK_THRESHOLD = 18;     // m/s²; real yanks ~40, tilting < 6 (5 iPhones 
 const YANK_COOLDOWN_MS = 600;
 const TILT_FREEZE_MS = 300;    // a yank jerks the phone; don't let it steer
 const NAME_KEY = 'crownfall:name';
+const AVATAR_KEY = 'crownfall:avatar';
 const DUEL_ARM_MS = 800;        // ignore the tail of the yank that started the duel
 const STILL_WARN = 4;           // m/s² during HOLD STILL that earns a (local-only) warning
 
@@ -27,11 +29,18 @@ function readName(): string {
 function saveName(n: string) {
   try { localStorage.setItem(NAME_KEY, n); } catch { /* private mode */ }
 }
+function readAvatar(): AvatarId {
+  try { const v = localStorage.getItem(AVATAR_KEY); return isAvatarId(v) ? v : DEFAULT_AVATAR; } catch { return DEFAULT_AVATAR; }
+}
+function saveAvatar(a: AvatarId) {
+  try { localStorage.setItem(AVATAR_KEY, a); } catch { /* private mode */ }
+}
 
 export function ControllerPage() {
   const roomCode = (location.pathname.split('/')[2] ?? '').toUpperCase();
   const [step, setStep] = useState<Step>('name');
   const [name, setName] = useState(readName);
+  const [avatar, setAvatar] = useState<AvatarId>(readAvatar);
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
   const [player, setPlayer] = useState<JoinResult>();
@@ -181,8 +190,8 @@ export function ControllerPage() {
     const n = name.trim();
     if (!/^[A-Z2-9]{5}$/.test(roomCode)) return setError('This link has no valid room code. Scan the QR again.');
     if (!n || n.length > 20) return setError('Pick a name, 1–20 characters.');
-    setError(''); setStep('joining'); saveName(n);
-    socket.current?.timeout(5000).emit('room:join', { roomCode, name: n }, (err: Error | null, res: JoinResult | ActionError) => {
+    setError(''); setStep('joining'); saveName(n); saveAvatar(avatar);
+    socket.current?.timeout(5000).emit('room:join', { roomCode, name: n, avatar }, (err: Error | null, res: JoinResult | ActionError) => {
       if (err) { setStep('name'); return setError('Server did not answer. Check your connection and try again.'); }
       if ('error' in res) { setStep('name'); return setError(res.error.message); }
       playerRef.current = res;
@@ -234,7 +243,7 @@ export function ControllerPage() {
   return (
     <main className={`ctl ${holding ? 'ctl-holding' : ''} ${flash ? `ctl-flash-${flash}` : ''}`} style={{ ['--pc' as string]: color }}>
       <header className="ctl-top">
-        <span>CROWNFALL</span>
+        <span>{step !== 'name' && step !== 'joining' ? <span aria-hidden="true">{AVATARS[avatar]} </span> : null}CROWNFALL</span>
         <span className="ctl-room">{roomCode || '—'}</span>
         <span className={connected ? 'ctl-on' : 'ctl-off'}>{connected ? `● ${rtt ?? '…'}ms` : '● offline'}</span>
       </header>
@@ -244,8 +253,18 @@ export function ControllerPage() {
       {(step === 'name' || step === 'joining') && (
         <section>
           <h1>Join Crownfall</h1>
-          <input className="ctl-name" value={name} maxLength={20} placeholder="Your name" autoFocus
+          <label className="ctl-label" htmlFor="ctl-name">Your name</label>
+          <input id="ctl-name" className="ctl-name" value={name} maxLength={20} placeholder="Your name"
             onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && join()} />
+          <p className="ctl-label">Pick your character</p>
+          <div className="ctl-avatars" role="radiogroup" aria-label="Character">
+            {(Object.keys(AVATARS) as AvatarId[]).map(id => (
+              <button key={id} type="button" role="radio" aria-checked={avatar === id} aria-label={id}
+                className={`ctl-avatar ${avatar === id ? 'is-picked' : ''}`} onClick={() => setAvatar(id)}>
+                {AVATARS[id]}
+              </button>
+            ))}
+          </div>
           <button onClick={join} disabled={step === 'joining' || !connected}>{step === 'joining' ? 'Joining…' : 'Join'}</button>
         </section>
       )}
