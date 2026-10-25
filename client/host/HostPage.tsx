@@ -6,6 +6,9 @@ import { RULES, AVATARS, isAvatarId } from '../../shared/constants.js';
 import { ArenaView } from './ArenaView.js';
 import { DuelOverlay } from './DuelOverlay.js';
 import { WantedBoard } from './WantedBoard.js';
+import { RoundStats } from './RoundStats.js';
+import { ReplayPanel } from './ReplayPanel.js';
+import { MAX_PRESENTATION_EVENTS, STAT_EVENTS } from './roundStatistics.js';
 import { Announcer } from './announcer.js';
 import { unlockAudio } from '../audio/sfx.js';
 import './host.css';
@@ -32,8 +35,11 @@ export function HostPage() {
   const [banner, setBanner] = useState<GameEvent>();
   const [duelResult, setDuelResult] = useState<GameEvent>();
   const [duelFouls, setDuelFouls] = useState<string[]>([]);
+  const [roundEvents, setRoundEvents] = useState<GameEvent[]>([]);
+  const [replay, setReplay] = useState<{ event: GameEvent; fouls: string[] }>();
   const joinUrl = room ? new URL('/play/' + room.roomCode, location.origin).href : '';
   useEffect(() => {
+    const fouls = new Set<string>();
     let bannerTimer: ReturnType<typeof setTimeout> | undefined;
     const connection: HostSocket = io();
     socketRef.current = connection;
@@ -41,6 +47,7 @@ export function HostPage() {
     connection.on('disconnect', () => {
       setConnected(false); setRoom(undefined); setSnapshot(undefined); setPending(undefined); setEnded(undefined); setBanner(undefined);
       setDuelResult(undefined); setDuelFouls([]);
+      setRoundEvents([]); setReplay(undefined); fouls.clear();
       setError('Host connection lost. Room recovery is not available yet; create a new room after reconnecting.');
     });
     connection.on('connect_error', () => setError('Cannot reach the server. Check your connection and /health.'));
@@ -48,12 +55,15 @@ export function HostPage() {
       lastSnapshot.current = performance.now(); setDelayed(false); setSnapshot(state);
       announcer.current?.snapshot(state);
       if (!state.duel) { setDuelResult(undefined); setDuelFouls(previous => previous.length ? [] : previous); }
-      if (state.phase === 'lobby' || state.phase === 'countdown') { setEnded(undefined); setBanner(undefined); }
+      if (state.phase === 'lobby' || state.phase === 'countdown') { setEnded(undefined); setBanner(undefined); setRoundEvents(previous => previous.length ? [] : previous); setReplay(undefined); fouls.clear(); }
     });
     connection.on('game:event', event => {
       window.dispatchEvent(new CustomEvent('crownfall:game-event', { detail: event }));
       announcer.current?.event(event);
-      if (event.type === 'DUEL_START') { setDuelResult(undefined); setDuelFouls([]); }
+      if (event.type === 'DUEL_START') { setDuelResult(undefined); setDuelFouls([]); setReplay(undefined); fouls.clear(); }
+      if (STAT_EVENTS.has(event.type)) setRoundEvents(previous => previous.some(e => e.eventId === event.eventId) ? previous : [...previous.slice(-(MAX_PRESENTATION_EVENTS - 1)), event]);
+      if (event.type === 'DUEL_FOUL' && event.actorId) fouls.add(event.actorId);
+      if (event.type === 'DUEL_REPLAY') setReplay({ event, fouls: [...fouls] });
       if (event.type === 'DUEL_FOUL' && event.actorId) setDuelFouls(previous => previous.includes(event.actorId!) ? previous : [...previous, event.actorId!]);
       if (event.type === 'DUEL_RESULT') setDuelResult(event);
       if (['CROWN_PICKUP', 'CROWN_STOLEN', 'CROWN_DROPPED', 'REVENGE', 'GEM_TAKEN'].includes(event.type)) {
@@ -61,7 +71,7 @@ export function HostPage() {
         bannerTimer = setTimeout(() => setBanner(undefined), 2500);
       }
     });
-    connection.on('game:ended', result => { announcer.current?.ended(result); setEnded(result); setBanner(undefined); setDuelResult(undefined); setDuelFouls([]); });
+    connection.on('game:ended', result => { setReplay(undefined); announcer.current?.ended(result); setEnded(result); setBanner(undefined); setDuelResult(undefined); setDuelFouls([]); });
     const timer = setInterval(() => setDelayed(lastSnapshot.current > 0 && performance.now() - lastSnapshot.current > 2000), 500);
     return () => { clearInterval(timer); clearTimeout(bannerTimer); connection.removeAllListeners(); connection.disconnect(); socketRef.current = undefined; };
   }, []);
@@ -148,11 +158,11 @@ export function HostPage() {
             {banner && phase === 'playing' && !snapshot?.duel && <div className={'cf-game-banner' + (banner.type === 'REVENGE' ? ' cf-revenge-banner' : '')} role="status">{bannerText}</div>}
             <DuelOverlay snapshot={snapshot} result={duelResult} fouls={duelFouls}/>
             {phase === 'countdown' && <div className="cf-countdown" aria-live="assertive"><span>READY YOUR PHONES</span><strong>{Math.max(1, seconds)}</strong><span>Keep your eyes on the big screen</span></div>}
-            {phase === 'ended' && <div className="cf-results" aria-live="polite"><CrownIcon/><span>{ended ? ended.winnerIds.length > 1 ? 'TIED WINNERS' : 'WINNER' : 'ROUND COMPLETE'}</span><h2>{winners || 'Finalizing scores...'}</h2><p>{ended?.scores[0]?.score ?? 0} points</p></div>}
+            {phase === 'ended' && <div className="cf-results" aria-live="polite"><CrownIcon/><span>{ended ? ended.winnerIds.length > 1 ? 'TIED WINNERS' : 'WINNER' : 'ROUND COMPLETE'}</span><h2>{winners || 'Finalizing scores...'}</h2><p>{ended?.scores[0]?.score ?? 0} points</p>{ended && <RoundStats events={roundEvents} players={players}/>}</div>}
             {!players.length && <div className="cf-empty-arena"><span>YOUR KINGDOM AWAITS.</span><p>Scan the code to claim your place.</p></div>}
             {(!connected || delayed) && <div className="cf-arena-warning">Connection interrupted - waiting for live state</div>}
           </div>
-          <div className="cf-arena-footer"><span>{phase === 'lobby' ? 'Tilt to explore. Calibrate your phone to become ready.' : phase === 'countdown' ? 'Movement pauses during the countdown.' : phase === 'ended' ? 'Start a rematch, then ready up on the same phones.' : 'Hold: +1 every 0.5s. Steal: +3. The crown gets heavier as you hold it.'}</span><span>{players.filter(p => p.connected).length} / 8 ONLINE</span></div>
+          <div className="cf-arena-footer"><span>{phase === 'lobby' ? 'Tilt to explore. Calibrate your phone to become ready.' : phase === 'countdown' ? 'Movement pauses during the countdown.' : phase === 'ended' ? 'Start a rematch, then ready up on the same phones.' : snapshot?.lastStand ? '2? POINTS ? Hold +2 / 0.5s ? Steal +6 ? Revenge +12 ? Vault +10' : 'Hold: +1 every 0.5s. Steal: +3. The crown gets heavier as you hold it.'}</span><span>{players.filter(p => p.connected).length} / 8 ONLINE</span></div>
           {phase === 'playing' && <WantedBoard players={players}/>}
           <div className="cf-instructions"><div><b>01</b><strong>Claim the crown</strong><p>Tilt toward the crown to pick it up.</p></div><div><b>02</b><strong>Close the gap</strong><p>Get close, then yank when your phone says ready.</p></div><div><b>03</b><strong>Keep it moving</strong><p>Stealing grants two seconds of protection.</p></div></div>
         </section>
@@ -175,6 +185,7 @@ export function HostPage() {
             {phase === 'lobby' && <div className="cf-ready-count">{readyCount} ready <span>- {Math.max(0, RULES.minPlayers - readyCount)} more needed to start</span></div>}
             <button className="cf-primary cf-start" disabled={!canStart} onClick={start}>{pending === 'start' ? 'Please wait...' : phase === 'ended' ? 'Rematch - return to lobby' : phase === 'lobby' ? 'Start the arena' : phase === 'countdown' ? 'Starting...' : 'Arena is live'}</button>
           </section>
+          {replay && phase === 'playing' && (!snapshot?.duel || snapshot.duel.stage === 'done') && <ReplayPanel key={replay.event.eventId} event={replay.event} fouls={replay.fouls} players={players}/>}
         </aside>
       </div>
     </>}

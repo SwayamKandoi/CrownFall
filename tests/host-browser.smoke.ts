@@ -20,10 +20,10 @@ const clients: Socket<ServerToClientEvents, ClientToServerEvents>[] = [];
 const streams: ReturnType<typeof setInterval>[] = [];
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const deadline = setTimeout(() => {
-  console.error('Host browser smoke exceeded 90 seconds.');
+  console.error('Host browser smoke exceeded 180 seconds.');
   void server.io.close();
   void browser?.close();
-}, 90_000);
+}, 180_000);
 try {
   server.http.listen(0, '127.0.0.1');
   await once(server.http, 'listening');
@@ -120,6 +120,7 @@ try {
   console.log('Screenshots: dist/verification/host-{lobby,playing,narrow,steal,results}.png');
   await duelBrowserSmoke(browser);
   await phase6BrowserSmoke(browser);
+  await duelBrowserSmoke(browser, true);
 } finally {
   clearTimeout(deadline);
   streams.forEach(clearInterval);

@@ -5,6 +5,7 @@ import { exact, finite, RateLimit } from './validation.js';
 import { earnedPoints, possessionPoints, holderSpeed, rankPlayers } from './scoring.js';
 import { DuelEngine } from './duel.js';
 import { Phase6, clampPosition } from './phase6.js';
+import { RoundHighlights } from './highlights.js';
 
 export interface GameOptions { duelsEnabled?: boolean; phase6Enabled?: boolean; random?: () => number; epochNow?: () => number }
 
@@ -38,20 +39,29 @@ export class GameRoom {
   private immuneUntil = 0;
   private readonly duel?: DuelEngine;
   private readonly phase6?: Phase6;
+  private readonly highlights?: RoundHighlights;
   private readonly epochNow: () => number;
   private foulSequences = new Map<string, number>();
   constructor(readonly players: Map<string, PlayerState>, now = performance.now(), options: GameOptions = {}) {
     this.lastAdvanceAt = now; this.accountedAt = now;
     this.epochNow = options.epochNow ?? (() => Date.now());
     if (options.duelsEnabled === true) this.duel = new DuelEngine(options.random);
-    if (options.phase6Enabled === true) this.phase6 = new Phase6(players, options.random ?? Math.random);
+    if (options.phase6Enabled === true) {
+      this.phase6 = new Phase6(players, options.random ?? Math.random); this.highlights = new RoundHighlights();
+    }
+  }
+  private emit(...events: GameEvent[]): void {
+    for (const event of events) {
+      if (this.highlights) { event.serverTime ??= this.epochNow(); this.highlights.record(event, this.players.values()); }
+      this.events.push(event);
+    }
   }
   get hasPendingOutput(): boolean { return this.events.length > 0 || this.ended.length > 0; }
   drainEvents(): GameEvent[] { return this.events.splice(0); }
   drainEnded(): GameEnded[] { return this.ended.splice(0); }
   reset(now: number): void {
     this.duel?.clear();
-    this.phase6?.clear();
+    this.phase6?.clear(); this.highlights?.clear();
     this.events = this.events.filter(event => !event.type.startsWith('DUEL_'));
     this.phase = 'lobby'; this.countdownEndsAt = 0; this.heldBy = null; this.heldMs = 0;
     this.crownPosition = { x: RULES.arenaWidth / 2, y: RULES.arenaHeight / 2 };
@@ -117,7 +127,7 @@ export class GameRoom {
     if (this.phase === 'playing' && this.inRange(id, now)) return rejected('NOT_READY', 'You are in steal range; yank instead.');
     if (now - (this.tauntAt.get(id) ?? -Infinity) < 1500) return rejected('RATE_LIMITED', 'One taunt at a time.');
     this.tauntAt.set(id, now);
-    this.events.push({ eventId: randomUUID(), type: 'TAUNT', actorId: id });
+    this.emit({ eventId: randomUUID(), type: 'TAUNT', actorId: id });
     return { ok: true };
   }
   yank(id: string, payload: unknown, now = performance.now(), epochNow = this.epochNow()): { ok: true } | ActionError {
@@ -150,6 +160,7 @@ export class GameRoom {
     this.cooldowns.set(id, now + RULES.challengerCooldownMs);
     if (now < this.immuneUntil) return rejected('NOT_READY', 'The crown holder is temporarily immune.');
     if (this.duel) {
+      this.highlights?.beginDuel(id, holder.id, now);
       this.duel.start(id, holder.id, now, epochNow);
       player.inDuel = true; holder.inDuel = true;
       this.flushDuelEvents();
@@ -175,7 +186,7 @@ export class GameRoom {
     this.flushDuelEvents();
     return result;
   }
-  private flushDuelEvents(): void { if (this.duel) this.events.push(...this.duel.drainEvents()); }
+  private flushDuelEvents(): void { if (this.duel) this.emit(...this.duel.drainEvents()); }
   private releaseDuelists(now: number): void {
     for (const player of this.players.values()) if (player.inDuel) {
       player.inDuel = false;
@@ -184,7 +195,7 @@ export class GameRoom {
     }
   }
   private cancelDuel(now: number, epochNow: number): void {
-    this.duel?.cancel(epochNow); this.releaseDuelists(now); this.flushDuelEvents();
+    this.highlights?.cancelDuel(); this.duel?.cancel(epochNow); this.releaseDuelists(now); this.flushDuelEvents();
   }
   disconnect(id: string, now = this.lastAdvanceAt): void {
     this.advance(now);
@@ -226,6 +237,7 @@ export class GameRoom {
     // Countdown follows real elapsed time even after a long event-loop stall.
     this.advanceClock(now);
     if (this.phase === 'playing') this.updateCrown(now);
+    if (this.phase === 'playing') this.highlights?.capture(now, this.players.values());
     if (this.phase === 'playing' && this.duel) {
       const outcome = this.duel.advance(now, epochNow);
       this.flushDuelEvents();
@@ -237,7 +249,9 @@ export class GameRoom {
         } else if (outcome.winnerId) outcome.event.points = this.award(holder, outcome.points, now);
         this.immuneUntil = now + RULES.immunityMs;
         this.releaseDuelists(now); this.accountedAt = now;
-        this.events.push(outcome.event);
+        this.emit(outcome.event);
+        const replay = this.highlights?.completed(outcome.event);
+        if (replay) this.emit(replay);
       }
     }
   }
@@ -249,7 +263,7 @@ export class GameRoom {
     if (this.phase !== 'playing') return;
     const deadline = this.countdownEndsAt + RULES.roundMs;
     now = Math.min(now, deadline);
-    this.phase6?.advance(now, this.countdownEndsAt, this.epochNow() - (this.lastAdvanceAt - now), event => this.events.push(event));
+    this.phase6?.advance(now, this.countdownEndsAt, this.epochNow() - (this.lastAdvanceAt - now), event => this.emit(event));
     if (this.phase6) clampPosition(this.crownPosition, this.phase6.scale);
     const holder = this.heldBy ? this.players.get(this.heldBy) : undefined;
     if (holder?.connected && !this.duel?.active) {
@@ -258,7 +272,7 @@ export class GameRoom {
       this.heldMs += elapsed;
     } else if (holder && !holder.connected && this.holderDisconnectedAt !== null && now >= this.holderDisconnectedAt + RULES.disconnectDropMs) {
       holder.holding = false;
-      this.events.push({ eventId: randomUUID(), type: 'CROWN_DROPPED', actorId: holder.id });
+      this.emit({ eventId: randomUUID(), type: 'CROWN_DROPPED', actorId: holder.id });
       this.heldBy = null; this.heldMs = 0; this.holderDisconnectedAt = null;
     }
     this.accountedAt = Math.max(this.accountedAt, now);
@@ -266,6 +280,8 @@ export class GameRoom {
       this.cancelDuel(now, this.epochNow());
       this.phase = 'ended';
       this.phase6?.finish();
+      const play = this.highlights?.playOfGame();
+      if (play) this.emit(play);
       this.ended.push(rankPlayers(this.players.values()));
     }
   }
@@ -277,7 +293,7 @@ export class GameRoom {
       candidates.sort((a, b) => distance(a) - distance(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       if (candidates[0]) {
         this.giveCrown(candidates[0], now);
-        this.events.push({ eventId: randomUUID(), type: 'CROWN_PICKUP', actorId: candidates[0].id });
+        this.emit({ eventId: randomUUID(), type: 'CROWN_PICKUP', actorId: candidates[0].id });
       }
     }
     const holder = this.heldBy ? this.players.get(this.heldBy) : undefined;
@@ -299,15 +315,15 @@ export class GameRoom {
     const points = this.award(player, revenge ? RULES.revengePoints : RULES.stealPoints, now);
     const event = { eventId: randomUUID(), type: 'CROWN_STOLEN' as const, actorId: player.id, victimId: victim, points,
       serverTime: this.epochNow() - (this.lastAdvanceAt - now) };
-    this.events.push(event);
-    if (revenge) this.events.push({ ...event, eventId: randomUUID(), type: 'REVENGE' });
+    this.emit(event);
+    if (revenge) this.emit({ ...event, eventId: randomUUID(), type: 'REVENGE' });
     return points;
   }
   private collectGem(now: number): void {
     const taken = this.phase6?.collect();
     if (!taken) return;
     const points = this.award(taken.player, RULES.gemPoints, now);
-    this.events.push({ eventId: randomUUID(), type: 'GEM_TAKEN', actorId: taken.player.id, points, x: taken.x, y: taken.y,
+    this.emit({ eventId: randomUUID(), type: 'GEM_TAKEN', actorId: taken.player.id, points, x: taken.x, y: taken.y,
       serverTime: this.epochNow() - (this.lastAdvanceAt - now) });
   }
   private step(now: number): void {
@@ -329,5 +345,5 @@ export class GameRoom {
       crown: { ...this.crownPosition, heldBy: this.heldBy, heldMs: this.heldMs },
       gem: this.phase6?.gemSnapshot(now) ?? null, duel: this.duel?.snapshot() ?? null, players: [...this.players.values()].map(player => ({ ...player })) };
   }
-  dispose(): void { this.phase6?.clear(); this.duel?.clear(); this.releaseDuelists(this.lastAdvanceAt); this.movement.clear(); this.yankSequences.clear(); this.foulSequences.clear(); this.cooldowns.clear(); this.tauntSequences.clear(); this.tauntAt.clear(); this.events = []; this.ended = []; }
+  dispose(): void { this.highlights?.clear(); this.phase6?.clear(); this.duel?.clear(); this.releaseDuelists(this.lastAdvanceAt); this.movement.clear(); this.yankSequences.clear(); this.foulSequences.clear(); this.cooldowns.clear(); this.tauntSequences.clear(); this.tauntAt.clear(); this.events = []; this.ended = []; }
 }
