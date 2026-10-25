@@ -6,6 +6,8 @@ CrownFall is a multiplayer motion-controlled party game built for HackPSU's Myst
 
 The current game supports **2–8 players**, with **4+ players** as the intended hackathon group demo. Phase 3 gameplay is implemented and merged into `main`. See [Phase 3 integration notes](server/PHASE3.md) for protocol details and verification status.
 
+[Phase 4 draw-off duels](server/PHASE4.md) provide opt-in server/host integration code. The flag is **disabled by default**; phone duel/stillness integration and contract approval remain outstanding. The default game below continues to use Phase 3 direct stealing.
+
 ## What you can play today
 
 - Create a room on the big screen and join from phones using its QR code or link.
@@ -109,7 +111,7 @@ Host QR codes use the current browser origin. No database or API credentials are
 
 ## Testing and verification status
 
-`npm test` runs **29 automated tests** using Node's test runner through `tsx`. Coverage includes:
+`npm test` runs the **29 Phase 3 regression tests** plus opt-in Phase 4 tests using Node's test runner through `tsx`. Phase 3 coverage includes:
 
 - Deterministic crown pickup, contested pickups, 500 ms scoring, slowdown and delayed disconnect drops.
 - Yank validation, epoch timestamps, per-event sequence/replay checks, out-of-order inputs, authoritative range, cooldowns, immunity and competing challengers.
@@ -136,7 +138,7 @@ Physical-device verification is tracked separately:
 
 ## Limitations and future work
 
-The playable Phase 3 loop uses direct stealing. Draw-off duels, revenge mechanics, vault gems, Last Stand, announcer support and advanced audiovisual polish are future work. Reserved constants and event types for those features do not mean they are active.
+The playable default Phase 3 loop uses direct stealing. Draw-off duels require completion of the [Phase 4 phone integration](server/PHASE4.md) before production use. Revenge mechanics, vault gems, Last Stand, announcer support and advanced audiovisual polish remain future work. Reserved constants and event types for those features do not mean they are active.
 
 Reconnect/resume and host refresh recovery are not implemented. A host connection loss requires creating a new room after reconnecting. Unoccupied rooms expire after 60 seconds. Phone feedback currently labels an unavailable yank as “Too far,” including cooldown/immunity, and its ordinal tied-rank display can differ from the host's shared ranks; every tied winner is still included in the server's `winnerIds`. Sensor permissions and haptic support vary by device/browser. The Phaser bundle is loaded when a host room opens and still produces a large-chunk build warning.
 

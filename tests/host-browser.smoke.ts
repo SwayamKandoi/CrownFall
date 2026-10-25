@@ -9,6 +9,7 @@ import type { ClientToServerEvents, ServerToClientEvents, Snapshot } from '../sh
 import { success } from './support/socketHarness.js';
 import { createApp } from '../server/app.js';
 import { RULES } from '../shared/constants.js';
+import { duelBrowserSmoke } from './support/duelBrowserSmoke.js';
 
 let clockOffset = 0;
 const now = () => performance.now() + clockOffset;
@@ -115,6 +116,7 @@ try {
   assert.deepEqual(errors, []);
   console.log('PASS: built host routes, QR, two-player minimum, four independent players, pickup/steal banners, scoreboard, timer, winners, rematch, responsive layout and one Phaser canvas; no browser runtime errors.');
   console.log('Screenshots: dist/verification/host-{lobby,playing,narrow,steal,results}.png');
+  await duelBrowserSmoke(browser);
 } finally {
   clearTimeout(deadline);
   streams.forEach(clearInterval);

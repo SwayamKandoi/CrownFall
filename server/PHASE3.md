@@ -4,6 +4,8 @@
 
 The server owns crown pickup, possession time, scores, direct steals and round results. The host renders snapshots at the existing 50 ms interpolation delay; it never predicts ownership or awards points. Simulation and snapshots remain 30 Hz, phone movement remains 20 Hz, and `minPlayers` remains two (eight-player capacity).
 
+This remains the default behavior. [Phase 4 server/host duels](PHASE4.md) are available behind a disabled-by-default flag for integration testing; they require Aryan's controller changes and approval of the proposed stillness signal before production enablement.
+
 ## Existing contract, new behavior
 
 The Phase 3 server/host implementation required no new shared Socket.IO contract: existing types, event names and payload shapes were reused. That implementation did not modify Aryan's controller, sensor, audio or deployment files.
@@ -36,7 +38,7 @@ Aryan explicitly approved this extension to the existing `host:start` semantics;
 
 ## Verification and manual gate
 
-`npm run typecheck` checks TypeScript, `npm test` runs 29 deterministic and real Socket.IO tests, and `npm run build` compiles the server and bundles the client. The optional `npm run test:host` verifies the built host through the application server in headless Edge and passed during Phase 3 implementation. Clock injection exists only as an in-process server constructor option for tests; no network clock/debug endpoint exists. Automated full-round tests advance the clock instead of sleeping 90 seconds. Browser screenshots are generated under ignored `dist/verification/`.
+`npm run typecheck` checks TypeScript, `npm test` includes the 29 Phase 3 regressions alongside opt-in Phase 4 tests, and `npm run build` compiles the server and bundles the client. The optional `npm run test:host` verifies the built host through the application server in headless Edge and passed during Phase 3 implementation. Clock injection exists only as an in-process server constructor option for tests; no network clock/debug endpoint exists. Automated full-round tests advance the clock instead of sleeping 90 seconds. Browser screenshots are generated under ignored `dist/verification/`.
 
 Phase 2 was tested on four real iPhones. According to Aryan's agent, the two-controller Phase 3 test covered pickup, stealing, the 90-second ending and rematch. That report does not independently confirm the final four-physical-phone deployment gate. The remaining Gate 3 check is four real phones on the deployed HTTPS version: independent tilt, pickup/holding screen and score, close-range yank and stolen flash, immunity/availability feedback, a full real-time 90-second round, tied results, and rematch readiness on the same connections. Record the deployed revision and result when that check is confirmed.
 

@@ -8,6 +8,8 @@ export class ArenaScene extends Phaser.Scene {
   private buffer = new SnapshotBuffer();
   private avatars = new Map<string, Avatar>();
   private crown?: Phaser.GameObjects.Graphics;
+  private duelShade?: Phaser.GameObjects.Rectangle;
+  private lastDuelStage?: string;
   constructor() { super('CrownfallArena'); }
   accept(snapshot: Snapshot): void { this.buffer.push(snapshot); }
   create(): void {
@@ -19,17 +21,22 @@ export class ArenaScene extends Phaser.Scene {
     graphics.lineStyle(2, 0x5b7087).strokeRoundedRect(18, 18, 924, 504, 14);
     graphics.lineStyle(1, 0xcaa65e, 0.25).strokeCircle(480, 270, 62);
     graphics.lineStyle(1, 0xcaa65e, 0.15).strokeCircle(480, 270, 85);
+    this.duelShade = this.add.rectangle(480, 270, 960, 540, 0x050a12, 0).setDepth(2);
     this.crown = this.add.graphics().setDepth(10).setPosition(480, 270);
     this.crown.fillStyle(0xf2ca78).fillPoints([
       new Phaser.Geom.Point(-18, -12), new Phaser.Geom.Point(-9, -4), new Phaser.Geom.Point(0, -19),
       new Phaser.Geom.Point(9, -4), new Phaser.Geom.Point(18, -12), new Phaser.Geom.Point(14, 9),
       new Phaser.Geom.Point(-14, 9),
     ], true);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.buffer.clear(); this.avatars.clear(); });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.buffer.clear(); this.avatars.clear(); this.lastDuelStage = undefined; });
   }
   update(): void {
     const state = this.buffer.sample();
     if (!state) return;
+    const active = state.duel && state.duel.stage !== 'done';
+    this.duelShade?.setFillStyle(0x050a12, active ? 0.35 : 0);
+    if (state.duel?.stage === 'cue' && this.lastDuelStage !== 'cue') this.cameras.main.flash(110, 255, 220, 150);
+    this.lastDuelStage = state.duel?.stage;
     this.crown?.setPosition(state.crown.x, state.crown.y - (state.crown.heldBy ? 22 : 0))
       .setAlpha(state.phase === 'lobby' || state.phase === 'countdown' ? 0.4 : 1);
     const ids = new Set(state.players.map(p => p.id));
@@ -48,6 +55,8 @@ export class ArenaScene extends Phaser.Scene {
         this.avatars.set(player.id, avatar);
       }
       avatar.root.setPosition(player.x, player.y).setAlpha(player.connected ? 1 : 0.35);
+      const duelist = state.duel?.a === player.id || state.duel?.b === player.id;
+      avatar.root.setDepth(duelist ? 3 : 0).setScale(duelist && state.duel?.stage === 'ready' ? 1 + 0.035 * Math.sin(this.time.now / 170) : 1);
       avatar.label.setText(player.name + (player.connected ? '' : ' · offline'));
       const halfLabel = avatar.label.width / 2 + 6;
       avatar.label.setPosition(
@@ -55,7 +64,7 @@ export class ArenaScene extends Phaser.Scene {
         player.y < 54 ? 37 : -37,
       );
       avatar.ready.setVisible(Boolean(state.phase === 'lobby' && player.connected && player.ready));
-      avatar.halo.setStrokeStyle(player.holding ? 4 : 1, player.holding ? 0xf2ca78 : avatar.color, player.holding ? 1 : 0.4);
+      avatar.halo.setStrokeStyle(duelist || player.holding ? 4 : 1, player.holding ? 0xf2ca78 : duelist ? 0xffffff : avatar.color, duelist || player.holding ? 1 : 0.4);
     }
   }
 }

@@ -37,6 +37,7 @@ test('eligible challenge freezes two players only, preserves ownership, and bloc
   const f = fixture();
   assert.equal(errorCode(f.yank('c')), 'NOT_READY');
   assert.equal(errorCode(f.yank('a')), 'NOT_READY');
+  f.players.get('c')!.x = 540; // A second eligible challenger competes in the same tick.
   for (const id of ['a', 'b', 'c', 'd']) success(f.game.move(id, { seq: f.seq(id), x: 1, y: 0 }, f.now));
   success(f.yank('b'));
   assert.deepEqual(f.game.snapshot(f.now).duel, { a: 'b', b: 'a', stage: 'ready' });
@@ -49,7 +50,7 @@ test('eligible challenge freezes two players only, preserves ownership, and bloc
   assert.equal(errorCode(f.game.yank('b', { seq: 2, ts: EPOCH + f.now }, f.now)), 'STALE_INPUT');
   f.advance(3100);
   assert.equal(f.players.get('a')!.x, 480); assert.equal(f.players.get('b')!.x, 520);
-  assert.ok(f.players.get('c')!.x > 700); assert.ok(f.players.get('d')!.x > 800);
+  assert.ok(f.players.get('c')!.x > 540); assert.ok(f.players.get('d')!.x > 800);
   assert.equal(f.game.drainEvents().filter(e => e.type === 'DUEL_START').length, 1);
 });
 test('defense scores +2, pauses fractional hold time, and clears frozen input without catch-up', () => {
@@ -110,6 +111,20 @@ test('one valid response steals +3; immunity and cooldown block subsequent chall
   assert.equal(f.game.inRange('c', 7750), false, 'blocked attempt starts challenger cooldown');
   assert.equal(errorCode(f.yank('c', 7750)), 'NOT_READY');
   success(f.yank('c', 9300)); assert.equal(f.game.snapshot(f.now).duel?.stage, 'ready');
+});
+
+test('phones with opposite clock offsets must send corrected epoch timestamps for reaction comparison', () => {
+  const f = fixture(); success(f.yank('b')); f.advance(4000);
+  const challengerLocal = EPOCH + 4150 + 5000;
+  const holderLocal = EPOCH + 4200 - 5000;
+  assert.equal(errorCode(f.yank('b', 4250, challengerLocal)), 'STALE_INPUT', 'uncorrected fast clock is implausibly future');
+  assert.equal(errorCode(f.yank('a', 4300, holderLocal)), 'STALE_INPUT', 'uncorrected slow clock is stale');
+  success(f.yank('a', 4400, holderLocal + 5000));
+  success(f.yank('b', 4500, challengerLocal - 5000));
+  f.advance(5750);
+  const result = f.game.drainEvents().find(e => e.type === 'DUEL_RESULT')!;
+  assert.equal(result.winnerId, 'b'); assert.equal(result.reactionMs, 150);
+  assert.equal(result.replay?.bMs, 200);
 });
 test('no response awards no defense bonus and resumes ordinary possession scoring', () => {
   const f = fixture(); success(f.yank('b')); f.advance(4000); f.advance(5750);
