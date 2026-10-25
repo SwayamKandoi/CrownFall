@@ -76,6 +76,7 @@ export function HostPage() {
     const connection = socketRef.current;
     if (!connection?.connected) return;
     unlockAudio(); announcer.current?.prime();
+    announcer.current?.say('Room ready. Scan to join.');
     setPending('create'); setError('');
     connection.timeout(5000).emit('room:create', (timeoutError, result) => {
       if (socketRef.current !== connection || !connection.connected) return;
@@ -118,7 +119,7 @@ export function HostPage() {
   return <main className="cf-host">
     <header className="cf-header">
       <a href="/host" className="cf-brand"><CrownIcon/> CROWNFALL</a>
-      <button className="cf-copy cf-mute" aria-pressed={muted} onClick={() => { unlockAudio(); const next = !muted; setMuted(next); announcer.current?.setMuted(next); }}>{muted ? 'Sound off' : 'Sound on'}</button>
+      <button className="cf-copy cf-mute" aria-pressed={muted} onClick={() => { unlockAudio(); const next = !muted; setMuted(next); announcer.current?.setMuted(next); if (!next) { announcer.current?.prime(); announcer.current?.say('Announcer on.'); } }}>{muted ? 'Sound off' : 'Sound on'}</button>
       <div className={'cf-connection ' + (connected && !delayed ? 'is-online' : '')}><span/>{!connected ? 'Connecting' : delayed ? 'Updates delayed' : 'Server connected'}</div>
     </header>
     {!room ? <section className="cf-welcome">

@@ -20,8 +20,11 @@ export class Announcer {
   constructor() {
     const pick = () => {
       const voices = this.synth?.getVoices() ?? [];
-      this.voice = voices.find(v => /en-(US|GB)/i.test(v.lang) && /Google|Samantha|Daniel|Alex/i.test(v.name))
-        ?? voices.find(v => /^en/i.test(v.lang));
+      // Prefer on-device voices: Chrome's network "Google" voices cut out after a while.
+      const english = voices.filter(v => /^en/i.test(v.lang));
+      this.voice = english.find(v => v.localService && /Samantha|Daniel|Alex|Karen|Moira/i.test(v.name))
+        ?? english.find(v => v.localService)
+        ?? english[0];
     };
     pick();
     this.synth?.addEventListener?.('voiceschanged', pick);
