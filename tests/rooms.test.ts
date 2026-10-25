@@ -19,11 +19,11 @@ test('real clients: capacity, readiness, host authorization and automatic countd
   assert.equal(errorCode(await host.timeout(1500).emitWithAck('host:start', { hostToken: 'é'.repeat(64) })), 'UNAUTHORIZED');
   const other = await h.room(0);
   assert.equal(errorCode(await other.host.timeout(1500).emitWithAck('host:start', { hostToken: created.hostToken })), 'UNAUTHORIZED');
-  for (const p of players.slice(0, 3)) success(await p.socket.timeout(1500).emitWithAck('player:ready', { calibrated: true }));
+  for (const p of players.slice(0, RULES.minPlayers - 1)) success(await p.socket.timeout(1500).emitWithAck('player:ready', { calibrated: true }));
   assert.equal(errorCode(await host.timeout(1500).emitWithAck('host:start', { hostToken: created.hostToken })), 'NOT_READY');
-  const readyUpdate = waitSnapshot(host, s => s.players.filter(p => p.ready).length === 4);
-  success(await players[3].socket.timeout(1500).emitWithAck('player:ready', { calibrated: true }));
-  assert.equal((await readyUpdate).players.filter(p => p.ready).length, 4);
+  const readyUpdate = waitSnapshot(host, s => s.players.filter(p => p.ready).length === RULES.minPlayers);
+  success(await players[RULES.minPlayers - 1].socket.timeout(1500).emitWithAck('player:ready', { calibrated: true }));
+  assert.equal((await readyUpdate).players.filter(p => p.ready).length, RULES.minPlayers);
   const countdown = waitSnapshot(host, s => s.phase === 'countdown');
   const playing = waitSnapshot(host, s => s.phase === 'playing');
   success(await host.timeout(1500).emitWithAck('host:start', { hostToken: created.hostToken }));

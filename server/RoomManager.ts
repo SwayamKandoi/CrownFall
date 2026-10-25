@@ -52,7 +52,7 @@ export class RoomManager {
       return failure('UNAUTHORIZED', 'Invalid host token.');
     if (room.game.phase !== 'lobby') return failure('INVALID_PHASE', 'This room has already started.');
     if ([...room.players.values()].filter(p => p.connected && p.ready).length < RULES.minPlayers)
-      return failure('NOT_READY', 'At least four connected, calibrated players are required.');
+      return failure('NOT_READY', `At least ${RULES.minPlayers} connected, calibrated players are required.`);
     room.game.start(this.now());
     return OK;
   }

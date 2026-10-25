@@ -1,6 +1,6 @@
 // Initial contract proposal. Coordinate changes with Aryan before feature work.
 export const RULES = {
-  arenaWidth: 960, arenaHeight: 540, minPlayers: 4, maxPlayers: 8,
+  arenaWidth: 960, arenaHeight: 540, minPlayers: 2, maxPlayers: 8,
   playerSpeed: 210, holderSpeed: 175, holderSlowdown: 3, holderMinSpeed: 130,
   crownPickupRadius: 35, duelRange: 85, roundMs: 90_000, countdownMs: 3_000,
   rushMs: 15_000, lastStandMs: 15_000, lastStandScale: 0.7,
