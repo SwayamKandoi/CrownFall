@@ -94,6 +94,29 @@ export class YankDetector {
   }
 }
 
+/**
+ * Shake (taunt): several quick spikes in a row. A single yank is one spike, so
+ * it never counts; a shake is 3+ peaks above `threshold` within `windowMs`.
+ */
+export class ShakeDetector {
+  private peaks: number[] = [];
+  private armed = true;
+  private lastFire = -Infinity;
+  constructor(private threshold = 12, private windowMs = 900, private needed = 3, private cooldownMs = 1500) {}
+  push(s: MotionSample): boolean {
+    if (s.magnitude < this.threshold * 0.6) this.armed = true;
+    if (!this.armed || s.magnitude < this.threshold) return false;
+    this.armed = false; // count each spike once
+    this.peaks = this.peaks.filter(t => s.t - t < this.windowMs);
+    this.peaks.push(s.t);
+    if (this.peaks.length >= this.needed && s.t - this.lastFire > this.cooldownMs) {
+      this.peaks = []; this.lastFire = s.t;
+      return true;
+    }
+    return false;
+  }
+}
+
 /** Stillness: recent motion magnitudes all stay under `limit`. Used to gate calibration. */
 export class StillnessCheck {
   private window: number[] = [];

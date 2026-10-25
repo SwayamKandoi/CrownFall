@@ -32,6 +32,8 @@ export class GameRoom {
   private ended: GameEnded[] = [];
   private yankSequences = new Map<string, number>();
   private cooldowns = new Map<string, number>();
+  private tauntSequences = new Map<string, number>();
+  private tauntAt = new Map<string, number>();
   private immuneUntil = 0;
   private readonly duel?: DuelEngine;
   private readonly epochNow: () => number;
@@ -49,7 +51,7 @@ export class GameRoom {
     this.events = this.events.filter(event => !event.type.startsWith('DUEL_'));
     this.phase = 'lobby'; this.countdownEndsAt = 0; this.heldBy = null; this.heldMs = 0;
     this.crownPosition = { x: RULES.arenaWidth / 2, y: RULES.arenaHeight / 2 };
-    this.holderDisconnectedAt = null; this.immuneUntil = 0; this.cooldowns.clear();
+    this.holderDisconnectedAt = null; this.immuneUntil = 0; this.cooldowns.clear(); this.tauntAt.clear();
     this.lastAdvanceAt = now; this.accountedAt = now; this.accumulator = 0;
     for (const player of this.players.values()) {
       const slot = Math.max(0, PLAYER_COLORS.findIndex(color => color === player.color));
@@ -93,6 +95,23 @@ export class GameRoom {
         Math.hypot(player.x - holder.x, player.y - holder.y) <= RULES.duelRange);
   }
   phoneDuel(id: string): PhoneState['duel'] { return this.duel?.phone(id) ?? null; }
+  /** Cosmetic shake-taunt: only outside steal range, never during a duel, at most one per 1.5 s. */
+  taunt(id: string, payload: unknown, now = performance.now()): { ok: true } | ActionError {
+    const player = this.players.get(id);
+    if (!player?.connected) return rejected('UNAUTHORIZED', 'A connected player is required.');
+    if (!exact(payload, ['seq']) || !Number.isSafeInteger(payload.seq) || (payload.seq as number) < 0)
+      return rejected('INVALID_PAYLOAD', 'Expected {seq: nonnegative safe integer}.');
+    const seq = payload.seq as number;
+    if (seq <= (this.tauntSequences.get(id) ?? -1)) return rejected('STALE_INPUT', 'Taunt sequence must increase.');
+    this.tauntSequences.set(id, seq);
+    if (this.phase !== 'lobby' && this.phase !== 'playing') return rejected('INVALID_PHASE', 'Taunts work in the lobby or during play.');
+    if (player.inDuel || this.duel?.includes(id)) return rejected('NOT_READY', 'No taunting mid-duel.');
+    if (this.phase === 'playing' && this.inRange(id, now)) return rejected('NOT_READY', 'You are in steal range; yank instead.');
+    if (now - (this.tauntAt.get(id) ?? -Infinity) < 1500) return rejected('RATE_LIMITED', 'One taunt at a time.');
+    this.tauntAt.set(id, now);
+    this.events.push({ eventId: randomUUID(), type: 'TAUNT', actorId: id });
+    return { ok: true };
+  }
   yank(id: string, payload: unknown, now = performance.now(), epochNow = this.epochNow()): { ok: true } | ActionError {
     this.advance(now, epochNow);
     const player = this.players.get(id);
@@ -170,10 +189,18 @@ export class GameRoom {
     const input = this.movement.get(id);
     if (input) { input.x = 0; input.y = 0; input.expiresAt = 0; }
   }
+  /** A known player's phone came back (refresh / lock screen). Scoring resumes without catch-up. */
+  reconnect(id: string, now = this.lastAdvanceAt): void {
+    this.advance(now);
+    const player = this.players.get(id);
+    if (!player) return;
+    player.connected = true;
+    if (this.heldBy === id) this.holderDisconnectedAt = null;
+  }
   removePlayer(id: string): void {
     this.movement.delete(id);
     this.yankSequences.delete(id); this.cooldowns.delete(id);
-    this.foulSequences.delete(id);
+    this.foulSequences.delete(id); this.tauntSequences.delete(id); this.tauntAt.delete(id);
     this.players.delete(id);
   }
   advance(now: number, epochNow = this.epochNow()): void {
@@ -270,5 +297,5 @@ export class GameRoom {
       crown: { ...this.crownPosition, heldBy: this.heldBy, heldMs: this.heldMs },
       gem: null, duel: this.duel?.snapshot() ?? null, players: [...this.players.values()].map(player => ({ ...player })) };
   }
-  dispose(): void { this.duel?.clear(); this.releaseDuelists(this.lastAdvanceAt); this.movement.clear(); this.yankSequences.clear(); this.foulSequences.clear(); this.cooldowns.clear(); this.events = []; this.ended = []; }
+  dispose(): void { this.duel?.clear(); this.releaseDuelists(this.lastAdvanceAt); this.movement.clear(); this.yankSequences.clear(); this.foulSequences.clear(); this.cooldowns.clear(); this.tauntSequences.clear(); this.tauntAt.clear(); this.events = []; this.ended = []; }
 }

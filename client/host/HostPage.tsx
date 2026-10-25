@@ -5,6 +5,8 @@ import type { ClientToServerEvents, ServerToClientEvents, CreateResult, Snapshot
 import { RULES, AVATARS, isAvatarId } from '../../shared/constants.js';
 import { ArenaView } from './ArenaView.js';
 import { DuelOverlay } from './DuelOverlay.js';
+import { Announcer } from './announcer.js';
+import { unlockAudio } from '../audio/sfx.js';
 import './host.css';
 
 type HostSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -14,6 +16,9 @@ function CrownIcon() {
 export function HostPage() {
   const socketRef = useRef<HostSocket>();
   const lastSnapshot = useRef(0);
+  const announcer = useRef<Announcer>();
+  announcer.current ??= new Announcer();
+  const [muted, setMuted] = useState(false);
   const [connected, setConnected] = useState(false);
   const [delayed, setDelayed] = useState(false);
   const [room, setRoom] = useState<CreateResult>();
@@ -40,11 +45,13 @@ export function HostPage() {
     connection.on('connect_error', () => setError('Cannot reach the server. Check your connection and /health.'));
     connection.on('state:snapshot', state => {
       lastSnapshot.current = performance.now(); setDelayed(false); setSnapshot(state);
+      announcer.current?.snapshot(state);
       if (!state.duel) { setDuelResult(undefined); setDuelFouls(previous => previous.length ? [] : previous); }
       if (state.phase === 'lobby' || state.phase === 'countdown') { setEnded(undefined); setBanner(undefined); }
     });
     connection.on('game:event', event => {
       window.dispatchEvent(new CustomEvent('crownfall:game-event', { detail: event }));
+      announcer.current?.event(event);
       if (event.type === 'DUEL_START') { setDuelResult(undefined); setDuelFouls([]); }
       if (event.type === 'DUEL_FOUL' && event.actorId) setDuelFouls(previous => previous.includes(event.actorId!) ? previous : [...previous, event.actorId!]);
       if (event.type === 'DUEL_RESULT') setDuelResult(event);
@@ -53,7 +60,7 @@ export function HostPage() {
         bannerTimer = setTimeout(() => setBanner(undefined), 2500);
       }
     });
-    connection.on('game:ended', result => { setEnded(result); setBanner(undefined); setDuelResult(undefined); setDuelFouls([]); });
+    connection.on('game:ended', result => { announcer.current?.ended(result); setEnded(result); setBanner(undefined); setDuelResult(undefined); setDuelFouls([]); });
     const timer = setInterval(() => setDelayed(lastSnapshot.current > 0 && performance.now() - lastSnapshot.current > 2000), 500);
     return () => { clearInterval(timer); clearTimeout(bannerTimer); connection.removeAllListeners(); connection.disconnect(); socketRef.current = undefined; };
   }, []);
@@ -68,6 +75,7 @@ export function HostPage() {
   function createRoom() {
     const connection = socketRef.current;
     if (!connection?.connected) return;
+    unlockAudio();
     setPending('create'); setError('');
     connection.timeout(5000).emit('room:create', (timeoutError, result) => {
       if (socketRef.current !== connection || !connection.connected) return;
@@ -80,6 +88,7 @@ export function HostPage() {
   async function start() {
     const connection = socketRef.current;
     if (!room || !connection?.connected) return;
+    unlockAudio();
     setPending('start'); setError('');
     try {
       const result = await connection.timeout(5000).emitWithAck('host:start', { hostToken: room.hostToken });
@@ -109,6 +118,7 @@ export function HostPage() {
   return <main className="cf-host">
     <header className="cf-header">
       <a href="/host" className="cf-brand"><CrownIcon/> CROWNFALL</a>
+      <button className="cf-copy cf-mute" aria-pressed={muted} onClick={() => { unlockAudio(); const next = !muted; setMuted(next); announcer.current?.setMuted(next); }}>{muted ? 'Sound off' : 'Sound on'}</button>
       <div className={'cf-connection ' + (connected && !delayed ? 'is-online' : '')}><span/>{!connected ? 'Connecting' : delayed ? 'Updates delayed' : 'Server connected'}</div>
     </header>
     {!room ? <section className="cf-welcome">

@@ -116,7 +116,25 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
     socket.on('clock:ping', payload => {
       if (clock.take() && exact(payload, ['t0']) && finite(payload.t0)) socket.emit('clock:pong', { t0: payload.t0, ts: epochNow() });
     });
-    socket.on('room:resume', (_payload, ack) => reject(ack, failure('NOT_IMPLEMENTED', 'Resume is not available yet.')));
+    socket.on('room:resume', async (payload, ack) => {
+      if (typeof ack !== 'function') return;
+      if (memberships.has(socket.id)) return ack(failure('ALREADY_JOINED', 'This connection already belongs to a room.'));
+      if (!allowed(ack)) return;
+      if (!exact(payload, ['roomCode', 'resumeToken']) || !roomCode(payload.roomCode) || typeof payload.resumeToken !== 'string' || !/^[0-9a-f]{64}$/.test(payload.resumeToken))
+        return ack(failure('INVALID_PAYLOAD', 'A room code and resume token are required.'));
+      const result = rooms.resume(payload.roomCode, payload.resumeToken);
+      if ('error' in result) return ack(result);
+      // A lingering old socket for this player (e.g. a locked phone) loses its seat to the new one.
+      for (const [otherId, member] of memberships) {
+        if (otherId !== socket.id && member.playerId === result.playerId) {
+          memberships.delete(otherId);
+          io.sockets.sockets.get(otherId)?.disconnect(true);
+        }
+      }
+      memberships.set(socket.id, { code: payload.roomCode, playerId: result.playerId });
+      await socket.join(payload.roomCode);
+      ack(result); broadcast(payload.roomCode);
+    });
     socket.on('input:move', (payload, ack) => {
       const member = memberships.get(socket.id);
       if (!member?.playerId) return reject(ack, failure('UNAUTHORIZED', 'Join as a player before moving.'));
@@ -132,7 +150,13 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
       if (typeof ack === 'function') ack(result);
       // Publish on the existing update loop, batching same-tick actions into one snapshot.
     });
-    socket.on('input:taunt', (_payload, ack) => reject(ack, failure('NOT_IMPLEMENTED', 'Taunts are not available yet.')));
+    socket.on('input:taunt', (payload, ack) => {
+      const member = memberships.get(socket.id);
+      if (!member?.playerId) return reject(ack, failure('UNAUTHORIZED', 'Join as a player before taunting.'));
+      const room = rooms.rooms.get(member.code);
+      const result = room?.game.taunt(member.playerId, payload, now()) ?? failure('ROOM_NOT_FOUND', 'Room does not exist.');
+      if (typeof ack === 'function') ack(result);
+    });
     socket.on('disconnect', () => {
       const member = memberships.get(socket.id);
       if (!member) return;

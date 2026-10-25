@@ -41,3 +41,4 @@
 .ctl .ctl-avatar{margin:0;padding:0;aspect-ratio:1;min-height:60px;font-size:34px;line-height:1;background:#171b27;border:2px solid #2a2f3e;border-radius:16px;color:inherit;font-weight:400}
 .ctl .ctl-avatar.is-picked{border-color:var(--pc);background:#232838;box-shadow:0 0 0 3px rgba(255,255,255,.08)}
 .ctl-name{box-sizing:border-box}
+.ctl-reconnect{position:sticky;top:0;z-index:6;margin:8px 0 0!important;padding:10px 12px;border-radius:10px;background:#3a2f12;color:#f6ce68!important;font-weight:700;text-align:center}

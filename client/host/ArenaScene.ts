@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { RULES, AVATARS, isAvatarId } from '../../shared/constants.js';
-import type { Snapshot } from '../../shared/events.js';
+import type { GameEvent, Snapshot } from '../../shared/events.js';
 import { SnapshotBuffer } from './interpolation.js';
 
 interface Avatar { root: Phaser.GameObjects.Container; label: Phaser.GameObjects.Text; ready: Phaser.GameObjects.Arc; halo: Phaser.GameObjects.Arc; color: number }
@@ -10,6 +10,8 @@ export class ArenaScene extends Phaser.Scene {
   private crown?: Phaser.GameObjects.Graphics;
   private duelShade?: Phaser.GameObjects.Rectangle;
   private lastDuelStage?: string;
+  private taunts = new Map<string, { text: Phaser.GameObjects.Text; until: number }>();
+  private pendingTaunts: string[] = [];
   constructor() { super('CrownfallArena'); }
   accept(snapshot: Snapshot): void { this.buffer.push(snapshot); }
   create(): void {
@@ -28,7 +30,20 @@ export class ArenaScene extends Phaser.Scene {
       new Phaser.Geom.Point(9, -4), new Phaser.Geom.Point(18, -12), new Phaser.Geom.Point(14, 9),
       new Phaser.Geom.Point(-14, 9),
     ], true);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.buffer.clear(); this.avatars.clear(); this.lastDuelStage = undefined; });
+    const onGameEvent = (e: Event) => {
+      const detail = (e as CustomEvent<GameEvent>).detail;
+      if (detail?.type === 'TAUNT' && detail.actorId) this.pendingTaunts.push(detail.actorId);
+    };
+    window.addEventListener('crownfall:game-event', onGameEvent);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { window.removeEventListener('crownfall:game-event', onGameEvent); this.buffer.clear(); this.avatars.clear(); this.taunts.clear(); this.pendingTaunts = []; this.lastDuelStage = undefined; });
+  }
+  private showTaunt(id: string, now: number): void {
+    this.taunts.get(id)?.text.destroy();
+    const lines = ['Too slow!', 'Catch me!', 'Nice try!', 'Come get it!', 'Yawn…', 'Is that all?'];
+    const text = this.add.text(0, 0, lines[Math.floor(Math.random() * lines.length)], {
+      fontSize: '15px', fontFamily: 'system-ui', fontStyle: 'bold', color: '#10202b', backgroundColor: '#f4f5fa', padding: { x: 8, y: 4 },
+    }).setOrigin(0.5).setDepth(20);
+    this.taunts.set(id, { text, until: now + 2200 });
   }
   update(): void {
     const state = this.buffer.sample();
@@ -39,6 +54,8 @@ export class ArenaScene extends Phaser.Scene {
     this.lastDuelStage = state.duel?.stage;
     this.crown?.setPosition(state.crown.x, state.crown.y - (state.crown.heldBy ? 22 : 0))
       .setAlpha(state.phase === 'lobby' || state.phase === 'countdown' ? 0.4 : 1);
+    const now = this.time.now;
+    for (const id of this.pendingTaunts.splice(0)) this.showTaunt(id, now);
     const ids = new Set(state.players.map(p => p.id));
     for (const [id, avatar] of this.avatars) if (!ids.has(id)) { avatar.root.destroy(); this.avatars.delete(id); }
     for (const player of state.players) {
@@ -58,6 +75,12 @@ export class ArenaScene extends Phaser.Scene {
         this.avatars.set(player.id, avatar);
       }
       avatar.root.setPosition(player.x, player.y).setAlpha(player.connected ? 1 : 0.35);
+      const taunt = this.taunts.get(player.id);
+      if (taunt) {
+        const left = taunt.until - now;
+        if (left <= 0) { taunt.text.destroy(); this.taunts.delete(player.id); }
+        else taunt.text.setPosition(player.x, player.y - 60 - (left < 500 ? (500 - left) / 25 : 0)).setAlpha(Math.min(1, left / 500));
+      }
       const duelist = state.duel?.a === player.id || state.duel?.b === player.id;
       avatar.root.setDepth(duelist ? 3 : 0).setScale(duelist && state.duel?.stage === 'ready' ? 1 + 0.035 * Math.sin(this.time.now / 170) : 1);
       avatar.label.setText(player.name + (player.connected ? '' : ' · offline'));

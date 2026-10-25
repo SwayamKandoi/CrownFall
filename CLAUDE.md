@@ -25,30 +25,35 @@ TypeScript, React 18 + Vite client, Express + Socket.IO server, Phaser on the ho
 - Build `npm install && npm run build`, start `npm start`.
 
 ## Phone side (Aryan) — what exists
-- `client/controller/sensors.ts`: `requestMotionPermission()` (call inside a tap; iOS needs orientation AND motion), `onOrientation`, `onMotion` (gravity-free accel, high-pass fallback), `YankDetector(threshold, cooldownMs)`, `StillnessCheck`, `vibrate()`, `iosHapticTap()`.
-- `client/controller/calibration.ts`: `calibrate(samples)`, `tiltToMove(o, cal)` → x/y in −1..1 with dead zone (maxTilt 25°, dead zone 0.12).
-- `client/controller/clockSync.ts`: `ClockSync` over `clock:ping/pong`; `serverNow()` for yank timestamps.
-- `client/controller/ControllerPage.tsx`: `/play/CODE` flow — name → Join → Enable Motion → Calibrate → I'm ready → sends `input:move` (volatile, 20 Hz, EMA smoothing 0.35).
-- `client/sensor-test/SensorTestPage.tsx`: diagnostics page.
+- `client/controller/sensors.ts`: motion permission (call inside a tap; iOS needs orientation AND motion), `onOrientation`, `onMotion`, `YankDetector` (18 m/s², 600 ms), `ShakeDetector` (taunts), `StillnessCheck`, `vibrate()`.
+- `client/controller/calibration.ts`: `calibrate`, `tiltToMove` → −1..1 (maxTilt 25°, dead zone 0.12).
+- `client/controller/clockSync.ts`: `ClockSync.serverNow()` for yank timestamps.
+- `client/controller/ControllerPage.tsx` (`/play/CODE`): name + character pick → Join → Enable Motion → Calibrate → Ready. Sends `input:move` 20 Hz (EMA 0.6). Range-gated yank (not during the 15 s rush), duel screens (HOLD STILL / DRAW! / result with ms), holding/stolen flashes, results + rematch, shake-to-taunt out of range, auto-rejoin via `room:resume` (seat in sessionStorage; move/yank `seq` starts at `Date.now()` so a reloaded page stays above the old sequence).
+- `client/audio/sfx.ts`: synthesized Web Audio SFX (no files), used by phone and host. `unlockAudio()` must run in a tap/click.
+- `client/host/announcer.ts`: big-screen voice (speechSynthesis) for countdown, pickup, steal, rush end, duels, fouls, 30/10 s, winner. "Sound on/off" toggle in the host header.
+- `client/sensor-test/`: diagnostics page.
 
-## Measured on real phones (5 iPhones, iOS Safari)
-- Yank peak ≈ **40+ m/s²**; normal tilting **2–6 m/s²** → yank threshold **18 m/s²**.
-- Motion events 60 Hz, native `acceleration` available. WS round trip ~120 ms on cellular.
-- `navigator.vibrate` does nothing on iOS (expected). The iOS hidden-switch haptic trick did **not** work in testing — haptics are optional polish.
-- **Android not yet tested** — borrow one before Playtest 1.
+## Measured on real phones
+- iPhone yank peak ≈ 40+ m/s², tilting 2–6 → threshold 18. Gate 3 also checked on Android.
+- iOS can't vibrate from the web; Android uses `navigator.vibrate`.
 
 ## Socket contract essentials (`shared/events.ts`)
-- Phone → server: `room:join {roomCode,name}`, `player:ready {calibrated:true}`, `input:move {seq,x,y}` (volatile), `input:yank {seq,ts}` (ts = server epoch ms), `input:taunt {seq}`, `clock:ping {t0}`.
-- Server → phone: `phone:state {phase, holding, score, inRange, wantedName, duel}`, `game:event`, `game:ended {scores, winnerIds}`, `clock:pong {t0,ts}`.
-- Phone `seq` is shared between move and yank: always increasing, may skip numbers. Server rejects non-increasing move seq.
-- Approved addition: `PlayerState.ready?: boolean`.
+- Phone → server: `room:join {roomCode, name, avatar?}` (avatar ∈ `AVATARS` in shared/constants: fox, frog, panda, lion, octopus, tiger, robot, ghost), `room:resume {roomCode, resumeToken}`, `player:ready`, `input:move {seq,x,y}` (volatile), `input:yank {seq,ts}` (server epoch ms), `input:taunt {seq}`, `clock:ping`.
+- Server → phone: `phone:state {phase, holding, score, inRange, wantedName, duel}`, `game:event`, `game:ended`, `clock:pong`.
+- `PlayerState.avatar?` and `PlayerState.ready?` are approved additions.
+- Taunts: server accepts out of steal range, not mid-duel, ≤1 per 1.5 s; emits `TAUNT`; host shows a speech bubble.
+- Resume: server stores each player's token; a newer socket with the same token takes over the seat. Lobby players are dropped 2 s after disconnect (then resume fails and the phone shows the join form).
 
-## Status (Sat Oct 24, ~8:10 PM)
-- Gate 1 (sensors) ✅ on iOS. Gate 2 code ✅ on both sides; simulated 4-phone test passed (each phone moves its own avatar).
-- Waiting on: Swayam merging `swayam/server` → `main` (trial merge was clean, 12/12 tests pass), then Render redeploy + real 4-phone Gate 2 test.
+## Server (Swayam) — what exists
+- Phase 3: authoritative pickup, hold scoring (+1 / 0.5 s, heavy crown), steals (+3), immunity/cooldowns, 90 s rounds, results, rematch (`host:start` in ended → lobby).
+- Phase 4: draw-off duels behind `CROWNFALL_DUELS=1` (set on Render). 15 s opening rush: no steals/duels.
+- Min players 2, max 8.
 
-## Next for Aryan (Phase 3, 8:30–11:30 PM)
-- Yank integrated: only when `phone:state.inRange`, 600 ms cooldown, ignore tilt for 300 ms after a yank. (Server still hardcodes `inRange:false` and returns NOT_IMPLEMENTED for `input:yank` until Swayam's Phase 3.)
-- Phone screens: lobby, playing, holding (gold), stolen (red flash), ended with score/rank, rematch → ready again. A draft of this exists in the Claude chat; keep it off `main` until Gate 2 passes.
-- Devpost: project must exist by **midnight**; first description draft.
-- Gate 3 (11:30): full 90 s round with 4 phones, correct scores, rematch works.
+## Status (Sun Oct 25, ~2:20 AM)
+- Phases 0–5 done. 61 automated tests. Simulated: 10/10 duels, 8-player movement, reload-resume, taunts, announcer lines.
+- Real phones: Gates 1–3 passed (iPhones + Android). Gate 4 (10 duels) and Phase 5 features still to verify on real phones.
+
+## Next
+- Swayam — Phase 6: Wanted poster + revenge (12 s, double points), vault gems (+5, every 25 s, 8 s life), Last Stand (final 15 s, arena ×0.7, points ×2), slow-mo duel replay, Play of the Game + end stats, 8-player layout check. Pull `main` first.
+- Phase 7 (8:00–9:30 AM, together): merge, Playtest 2 + record video, tune constants. Code freeze 9:30 AM. Submission by 11:45 AM (deadline noon).
+- Parked: move Render to Virginia (lower latency) before recording the video; UI polish pass; iOS haptics.

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents, JoinResult, PhoneState, ActionError, GameEnded, GameEvent } from '../../shared/events.js';
-import { requestMotionPermission, onOrientation, onMotion, YankDetector, buzz, vibrate, type Orientation } from './sensors.js';
+import { requestMotionPermission, onOrientation, onMotion, YankDetector, ShakeDetector, buzz, vibrate, type Orientation } from './sensors.js';
 import { calibrate, tiltToMove, type Calibration } from './calibration.js';
 import { ClockSync } from './clockSync.js';
+import { sfx, unlockAudio } from '../audio/sfx.js';
 import { AVATARS, DEFAULT_AVATAR, isAvatarId, type AvatarId } from '../../shared/constants.js';
 import './controller.css';
 
@@ -28,6 +29,14 @@ function readName(): string {
 }
 function saveName(n: string) {
   try { localStorage.setItem(NAME_KEY, n); } catch { /* private mode */ }
+}
+interface Seat { resumeToken: string; playerId: string; color: string }
+const seatKey = (room: string) => `crownfall:seat:${room}`;
+function readSeat(room: string): Seat | undefined {
+  try { const raw = sessionStorage.getItem(seatKey(room)); return raw ? JSON.parse(raw) as Seat : undefined; } catch { return undefined; }
+}
+function saveSeat(room: string, seat: Seat | undefined) {
+  try { if (seat) sessionStorage.setItem(seatKey(room), JSON.stringify(seat)); else sessionStorage.removeItem(seatKey(room)); } catch { /* private mode */ }
 }
 function readAvatar(): AvatarId {
   try { const v = localStorage.getItem(AVATAR_KEY); return isAvatarId(v) ? v : DEFAULT_AVATAR; } catch { return DEFAULT_AVATAR; }
@@ -60,7 +69,10 @@ export function ControllerPage() {
   const cal = useRef<Calibration>();
   const calBuffer = useRef<Orientation[] | null>(null);
   const smooth = useRef({ x: 0, y: 0 });
-  const seq = useRef(0);
+  // Server rejects non-increasing sequences per player, so a reloaded page must start above the old one.
+  const seq = useRef(Date.now());
+  const resumedRef = useRef(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const phoneRef = useRef<PhoneState>();
   const playerRef = useRef<JoinResult>();
   const lastYank = useRef(-Infinity);
@@ -80,12 +92,35 @@ export function ControllerPage() {
     const s: GameSocket = io();
     socket.current = s;
     clock.current = new ClockSync(s);
-    s.on('connect', () => { setConnected(true); clock.current?.start(); });
+    s.on('connect', () => {
+      setConnected(true); clock.current?.start();
+      // Rejoin as the same player after a refresh (seat in sessionStorage) or a dropped socket (lock screen).
+      const seat = playerRef.current ?? readSeat(roomCode);
+      if (!seat) return;
+      setReconnecting(true);
+      s.timeout(5000).emit('room:resume', { roomCode, resumeToken: seat.resumeToken }, (err: Error | null, res: JoinResult | ActionError) => {
+        setReconnecting(false);
+        if (err) return; // socket.io will reconnect and try again
+        if ('error' in res) {
+          saveSeat(roomCode, undefined);
+          if (playerRef.current) { playerRef.current = undefined; setPlayer(undefined); setStep('name'); setError('You were away too long, so your seat was released. Join again.'); }
+          return;
+        }
+        playerRef.current = res; setPlayer(res); saveSeat(roomCode, res);
+        resumedRef.current = true;
+        setStep(prev => (prev === 'name' || prev === 'joining' ? 'motion' : prev));
+      });
+    });
     s.on('disconnect', () => setConnected(false));
     s.on('phone:state', next => {
       const prev = phoneRef.current;
       phoneRef.current = next;
       setPhone(next);
+      if (resumedRef.current) {
+        // After a resume the server keeps game players but clears lobby readiness.
+        resumedRef.current = false;
+        setReadySent(next.phase !== 'lobby');
+      }
       const pd = prev?.duel?.stage, nd = next.duel?.stage;
       if (nd === 'ready' && pd !== 'ready') {
         duelRef.current = { startedAt: performance.now(), reacted: false };
@@ -93,12 +128,13 @@ export function ControllerPage() {
         clearTimeout(flashTimer.current); setFlash(null); setBanner('');
         vibrate(40);
       }
-      if (nd === 'cue' && pd !== 'cue') vibrate(120);
-      if (nd === 'done' && pd !== 'done') vibrate(next.duel?.won ? [40, 40, 120] : [200]);
+      if (nd === 'ready' && pd !== 'ready') sfx.duel();
+      if (nd === 'cue' && pd !== 'cue') { vibrate(120); sfx.draw(); }
+      if (nd === 'done' && pd !== 'done') { vibrate(next.duel?.won ? [40, 40, 120] : [200]); if (next.duel?.won) sfx.win(); else sfx.lose(); }
       if (!nd && pd) { duelRef.current = null; }
       if (next.phase === 'playing' && prev?.phase === 'playing' && !next.duel && !prev.duel) {
-        if (!prev.holding && next.holding) { showFlash('gold', '👑 GOT IT', 900); vibrate([40, 40, 80]); }
-        if (prev.holding && !next.holding) { showFlash('red', 'STOLEN!', 1100); vibrate([120, 60, 120]); }
+        if (!prev.holding && next.holding) { showFlash('gold', '👑 GOT IT', 900); vibrate([40, 40, 80]); sfx.pickup(); }
+        if (prev.holding && !next.holding) { showFlash('red', 'STOLEN!', 1100); vibrate([120, 60, 120]); sfx.steal(); }
       }
       if (next.phase === 'countdown' && prev?.phase !== 'countdown') setEnded(undefined);
       if (next.phase === 'lobby' && prev && prev.phase !== 'lobby') { setEnded(undefined); setReadySent(false); } // rematch: ready up again
@@ -107,7 +143,7 @@ export function ControllerPage() {
       window.dispatchEvent(new CustomEvent('crownfall:game-event', { detail: e }));
       const me = playerRef.current?.playerId;
       const inDuel = Boolean(phoneRef.current?.duel) || e.type.startsWith('DUEL_');
-      if (e.type === 'CROWN_STOLEN' && e.actorId === me && !inDuel) { showFlash('gold', '🫳 YOU STOLE IT', 1000); vibrate([40, 40, 80]); }
+      if (e.type === 'CROWN_STOLEN' && e.actorId === me && !inDuel) { showFlash('gold', '🫳 YOU STOLE IT', 1000); vibrate([40, 40, 80]); sfx.win(); }
       if (!me) return;
       const updateDuel = (patch: Partial<DuelInfo>) => {
         if (!duelInfoRef.current) return;
@@ -129,7 +165,7 @@ export function ControllerPage() {
         updateDuel({ myMs: mine, oppMs: theirs, winnerId: e.winnerId, resolved: true });
       }
     });
-    s.on('game:ended', result => { clearTimeout(flashTimer.current); setFlash(null); setBanner(''); setEnded(result); vibrate(200); });
+    s.on('game:ended', result => { clearTimeout(flashTimer.current); setFlash(null); setBanner(''); setEnded(result); vibrate(200); sfx.end(); });
     const rttId = setInterval(() => clock.current && Number.isFinite(clock.current.rtt) && setRtt(clock.current.rtt), 1000);
     return () => { clearInterval(rttId); clock.current?.dispose(); s.disconnect(); clearTimeout(flashTimer.current); };
   }, []);
@@ -144,6 +180,7 @@ export function ControllerPage() {
       calBuffer.current?.push(o);
     });
     const yank = new YankDetector(YANK_THRESHOLD, YANK_COOLDOWN_MS);
+    const shake = new ShakeDetector();
     const offM = onMotion(m => {
       const fired = yank.push(m);
       if (!inGame) return;
@@ -158,6 +195,14 @@ export function ControllerPage() {
           lastYank.current = performance.now();
           socket.current?.emit('input:yank', { seq: ++seq.current, ts: clock.current?.serverNow() ?? Date.now() });
         }
+        return;
+      }
+      const shook = shake.push(m);
+      const psNow = phoneRef.current;
+      if (shook && psNow && (psNow.phase === 'playing' || psNow.phase === 'lobby') && !psNow.inRange) {
+        socket.current?.emit('input:taunt', { seq: ++seq.current });
+        showFlash('yank', 'TAUNT!', 500);
+        lastYank.current = performance.now(); // shaking shouldn't steer either
         return;
       }
       if (!fired) return;
@@ -190,18 +235,21 @@ export function ControllerPage() {
     const n = name.trim();
     if (!/^[A-Z2-9]{5}$/.test(roomCode)) return setError('This link has no valid room code. Scan the QR again.');
     if (!n || n.length > 20) return setError('Pick a name, 1–20 characters.');
+    unlockAudio();
     setError(''); setStep('joining'); saveName(n); saveAvatar(avatar);
     socket.current?.timeout(5000).emit('room:join', { roomCode, name: n, avatar }, (err: Error | null, res: JoinResult | ActionError) => {
       if (err) { setStep('name'); return setError('Server did not answer. Check your connection and try again.'); }
       if ('error' in res) { setStep('name'); return setError(res.error.message); }
       playerRef.current = res;
       setPlayer(res);
+      saveSeat(roomCode, res);
       setStep('motion');
     });
   }
 
   async function enableMotion() {
     const pending = requestMotionPermission(); // must start inside the tap
+    unlockAudio();
     buzz(30);
     const p = await pending;
     if (p === 'granted') { setError(''); return setStep('calibrate'); }
@@ -249,6 +297,7 @@ export function ControllerPage() {
       </header>
 
       {banner && <div className="ctl-banner">{banner}</div>}
+      {player && (!connected || reconnecting) && <p className="ctl-reconnect">Reconnecting… keep this page open</p>}
 
       {(step === 'name' || step === 'joining') && (
         <section>
@@ -337,7 +386,7 @@ export function ControllerPage() {
             </>
           ) : (
             <>
-              <p className="ctl-kicker">REMATCH</p>
+              <p className="ctl-kicker">READY UP</p>
               <h1 className="ctl-status">Ready again?</h1>
               <button onClick={ready}>I'm ready</button>
             </>

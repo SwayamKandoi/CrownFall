@@ -46,7 +46,7 @@ test('real clients: malformed requests, missing rooms, readiness and optional ac
   assert.equal(errorCode(await rawAck(client, 'player:ready', { calibrated: false })), 'INVALID_PAYLOAD');
   assert.equal(errorCode(await rawAck(client, 'player:ready', { calibrated: true })), 'UNAUTHORIZED');
   assert.equal(errorCode(await rawAck(client, 'host:start', {})), 'INVALID_PAYLOAD');
-  assert.equal(errorCode(await rawAck(client, 'room:resume', { roomCode: 'ABCDE', resumeToken: 'x' })), 'NOT_IMPLEMENTED');
+  assert.equal(errorCode(await rawAck(client, 'room:resume', { roomCode: 'ABCDE', resumeToken: 'x' })), 'INVALID_PAYLOAD');
   const room = await h.room(4);
   const update = waitSnapshot(room.host, s => s.players.every(p => p.ready));
   for (const p of room.players) p.socket.emit('player:ready', { calibrated: true });

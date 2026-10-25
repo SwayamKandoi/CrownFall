@@ -7,6 +7,7 @@ export interface Room {
   code: string; hostToken: string; players: Map<string, PlayerState>;
   game: GameRoom; hostConnected: boolean; lastOccupiedAt: number;
   lobbyDisconnects: Map<string, number>;
+  resumeTokens: Map<string, string>;
 }
 export const failure = (code: ActionError['error']['code'], message: string): ActionError => ({ error: { code, message } });
 export const OK = { ok: true } as const;
@@ -19,7 +20,7 @@ export class RoomManager {
     do { code = Array.from({ length: 5 }, () => alphabet[randomInt(alphabet.length)]).join(''); } while (this.rooms.has(code));
     const hostToken = randomBytes(32).toString('hex');
     const players = new Map<string, PlayerState>();
-    this.rooms.set(code, { code, hostToken, players, game: new GameRoom(players, this.now(), this.gameOptions), hostConnected: true, lastOccupiedAt: this.now(), lobbyDisconnects: new Map() });
+    this.rooms.set(code, { code, hostToken, players, game: new GameRoom(players, this.now(), this.gameOptions), hostConnected: true, lastOccupiedAt: this.now(), lobbyDisconnects: new Map(), resumeTokens: new Map() });
     return { roomCode: code, hostToken, joinUrl: origin + '/play/' + code };
   }
   join(code: string, name: string, avatar: string = 'fox'): JoinResult | ActionError {
@@ -34,7 +35,9 @@ export class RoomManager {
     room.players.set(id, { id, name, color, avatar, x: 180 + slot % 4 * 200, y: slot < 4 ? 180 : 360,
       score: 0, holding: false, connected: true, inDuel: false, wantedId: null, ready: false });
     room.lastOccupiedAt = this.now();
-    return { playerId: id, resumeToken: randomBytes(32).toString('hex'), color };
+    const resumeToken = randomBytes(32).toString('hex');
+    room.resumeTokens.set(id, resumeToken);
+    return { playerId: id, resumeToken, color };
   }
   ready(code: string, id: string): typeof OK | ActionError {
     const room = this.rooms.get(code);
@@ -62,6 +65,23 @@ export class RoomManager {
     room.game.start(this.now());
     return OK;
   }
+  /** Rebind a returning phone to its existing player via the token issued at join. */
+  resume(code: string, token: string): JoinResult | ActionError {
+    const room = this.rooms.get(code);
+    if (!room) return failure('ROOM_NOT_FOUND', 'Room does not exist.');
+    const supplied = Buffer.from(token);
+    let match: string | undefined;
+    for (const [id, stored] of room.resumeTokens) {
+      const expected = Buffer.from(stored);
+      if (expected.length === supplied.length && timingSafeEqual(expected, supplied)) match = id;
+    }
+    const player = match ? room.players.get(match) : undefined;
+    if (!match || !player) return failure('UNAUTHORIZED', 'That player is no longer in this room. Join again.');
+    room.game.reconnect(match, this.now());
+    room.lobbyDisconnects.delete(match);
+    room.lastOccupiedAt = this.now();
+    return { playerId: match, resumeToken: token, color: player.color };
+  }
   disconnect(code: string, id?: string): void {
     const room = this.rooms.get(code);
     if (!room) return;
@@ -88,6 +108,7 @@ export class RoomManager {
           if (!player || player.connected) room.lobbyDisconnects.delete(id);
           else if (now - disconnectedAt >= RULES.disconnectDropMs) {
             room.game.removePlayer(id);
+            room.resumeTokens.delete(id);
             room.lobbyDisconnects.delete(id);
             rosterChanged = true;
           }
