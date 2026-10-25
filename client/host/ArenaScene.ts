@@ -9,6 +9,7 @@ export class ArenaScene extends Phaser.Scene {
   private buffer = new SnapshotBuffer();
   private avatars = new Map<string, Avatar>();
   private crown?: Phaser.GameObjects.Graphics;
+  private crownGlow?: Phaser.GameObjects.Arc;
   private duelShade?: Phaser.GameObjects.Rectangle;
   private lastDuelStage?: string;
   private taunts = new Map<string, { text: Phaser.GameObjects.Text; until: number }>();
@@ -21,12 +22,12 @@ export class ArenaScene extends Phaser.Scene {
   accept(snapshot: Snapshot): void { this.buffer.push(snapshot); }
   create(): void {
     const graphics = this.add.graphics();
-    graphics.fillStyle(0x111c2a).fillRoundedRect(0, 0, 960, 540, 12);
-    graphics.lineStyle(1, 0x243449, 0.5);
+    graphics.fillStyle(0x0b0d1a).fillRoundedRect(0, 0, 960, 540, 12);
+    graphics.lineStyle(1, 0x1c2140, 0.6);
     for (let x = 60; x < 960; x += 60) graphics.lineBetween(x, 18, x, 522);
     for (let y = 60; y < 540; y += 60) graphics.lineBetween(18, y, 942, y);
-    graphics.lineStyle(2, 0x5b7087).strokeRoundedRect(18, 18, 924, 504, 14);
-    graphics.lineStyle(1, 0xcaa65e, 0.25).strokeCircle(480, 270, 62);
+    graphics.lineStyle(3, 0xf6ce68, 0.35).strokeRoundedRect(18, 18, 924, 504, 14);
+    graphics.lineStyle(2, 0xf6ce68, 0.25).strokeCircle(480, 270, 62);
     graphics.lineStyle(1, 0xcaa65e, 0.15).strokeCircle(480, 270, 85);
     this.duelShade = this.add.rectangle(480, 270, 960, 540, 0x050a12, 0).setDepth(2);
     this.finale = this.add.graphics().setDepth(1);
@@ -36,12 +37,19 @@ export class ArenaScene extends Phaser.Scene {
     this.gem.fillStyle(0x6fffe5).fillPoints([new Phaser.Geom.Point(0, -18), new Phaser.Geom.Point(14, 0),
       new Phaser.Geom.Point(0, 18), new Phaser.Geom.Point(-14, 0)], true);
     this.gem.lineStyle(2, 0xffffff, 0.9).lineBetween(0, -14, -9, 0).lineBetween(-9, 0, 0, 12);
-    this.crown = this.add.graphics().setDepth(10).setPosition(480, 270);
-    this.crown.fillStyle(0xf2ca78).fillPoints([
+    this.crownGlow = this.add.circle(480, 270, 34, 0xf6ce68, 0.22).setDepth(9).setBlendMode(Phaser.BlendModes.ADD);
+    this.crown = this.add.graphics().setDepth(10).setPosition(480, 270).setScale(1.35);
+    this.crown.fillStyle(0xf6ce68).fillPoints([
       new Phaser.Geom.Point(-18, -12), new Phaser.Geom.Point(-9, -4), new Phaser.Geom.Point(0, -19),
       new Phaser.Geom.Point(9, -4), new Phaser.Geom.Point(18, -12), new Phaser.Geom.Point(14, 9),
       new Phaser.Geom.Point(-14, 9),
     ], true);
+    this.crown.lineStyle(2, 0x7a5a10, 0.9).strokePoints([
+      new Phaser.Geom.Point(-18, -12), new Phaser.Geom.Point(-9, -4), new Phaser.Geom.Point(0, -19),
+      new Phaser.Geom.Point(9, -4), new Phaser.Geom.Point(18, -12), new Phaser.Geom.Point(14, 9),
+      new Phaser.Geom.Point(-14, 9),
+    ], true);
+    this.crown.fillStyle(0xff6b6b).fillCircle(0, 2, 3);
     const onGameEvent = (e: Event) => {
       const detail = (e as CustomEvent<GameEvent>).detail;
       if (detail?.type === 'TAUNT' && detail.actorId) this.pendingTaunts.push(detail.actorId);
@@ -82,8 +90,11 @@ export class ArenaScene extends Phaser.Scene {
     this.duelShade?.setFillStyle(0x050a12, active ? 0.35 : 0);
     if (state.duel?.stage === 'cue' && this.lastDuelStage !== 'cue') this.cameras.main.flash(110, 255, 220, 150);
     this.lastDuelStage = state.duel?.stage;
-    this.crown?.setPosition(state.crown.x, state.crown.y - (state.crown.heldBy ? 22 : 0))
-      .setAlpha(state.phase === 'lobby' || state.phase === 'countdown' ? 0.4 : 1);
+    const crownY = state.crown.y - (state.crown.heldBy ? 34 : 0) + 3 * Math.sin(this.time.now / 260);
+    const crownAlpha = state.phase === 'lobby' || state.phase === 'countdown' ? 0.4 : 1;
+    this.crown?.setPosition(state.crown.x, crownY).setAlpha(crownAlpha);
+    this.crownGlow?.setPosition(state.crown.x, crownY).setAlpha(crownAlpha)
+      .setScale(1 + 0.15 * Math.sin(this.time.now / 300) + (state.crown.heldBy ? 0.25 : 0));
     const now = this.time.now;
     for (const id of this.pendingTaunts.splice(0)) this.showTaunt(id, now);
     const ids = new Set(state.players.map(p => p.id));
@@ -92,15 +103,15 @@ export class ArenaScene extends Phaser.Scene {
       let avatar = this.avatars.get(player.id);
       if (!avatar) {
         const color = Phaser.Display.Color.HexStringToColor(player.color).color;
-        const shadow = this.add.ellipse(0, 21, 34, 10, 0x000000, 0.35);
-        const halo = this.add.circle(0, 0, 24).setStrokeStyle(1, color, 0.4);
+        const shadow = this.add.ellipse(0, 29, 46, 12, 0x000000, 0.4);
+        const halo = this.add.circle(0, 0, 31).setStrokeStyle(1, color, 0.4);
         const emoji = isAvatarId(player.avatar) ? AVATARS[player.avatar] : null;
-        const body = emoji ? this.add.circle(0, 0, 19, 0x0d1622).setStrokeStyle(3, color, 1) : this.add.circle(0, 0, 18, color).setStrokeStyle(2, 0xffffff, 0.8);
+        const body = emoji ? this.add.circle(0, 0, 26, 0x151935).setStrokeStyle(4, color, 1) : this.add.circle(0, 0, 24, color).setStrokeStyle(2, 0xffffff, 0.8);
         const eyes = emoji
-          ? this.add.text(0, 1, emoji, { fontSize: '24px', fontFamily: '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif' }).setOrigin(0.5)
+          ? this.add.text(0, 2, emoji, { fontSize: '32px', fontFamily: '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif' }).setOrigin(0.5)
           : this.add.text(0, -3, '• •', { fontSize: '13px', fontFamily: 'system-ui', color: '#10202b' }).setOrigin(0.5);
-        const label = this.add.text(0, -37, player.name, { fontSize: '13px', fontFamily: 'system-ui', color: '#f4f5fa', backgroundColor: '#111c2a' }).setOrigin(0.5);
-        const ready = this.add.circle(18, -16, 4, 0x78dab3).setStrokeStyle(1, 0x111c2a);
+        const label = this.add.text(0, -46, player.name, { fontSize: '15px', fontFamily: 'system-ui', fontStyle: 'bold', color: '#f4f1e8', backgroundColor: '#0b0d1acc', padding: { x: 5, y: 2 } }).setOrigin(0.5);
+        const ready = this.add.circle(22, -21, 5, 0x78dab3).setStrokeStyle(1, 0x111c2a);
         avatar = { root: this.add.container(player.x, player.y, [shadow, halo, body, eyes, label, ready]), label, ready, halo, color };
         this.avatars.set(player.id, avatar);
       }
@@ -109,20 +120,20 @@ export class ArenaScene extends Phaser.Scene {
       if (taunt) {
         const left = taunt.until - now;
         if (left <= 0) { taunt.text.destroy(); this.taunts.delete(player.id); }
-        else taunt.text.setPosition(player.x, player.y - 60 - (left < 500 ? (500 - left) / 25 : 0)).setAlpha(Math.min(1, left / 500));
+        else taunt.text.setPosition(player.x, player.y - 74 - (left < 500 ? (500 - left) / 25 : 0)).setAlpha(Math.min(1, left / 500));
       }
       const duelist = state.duel?.a === player.id || state.duel?.b === player.id;
       avatar.root.setDepth(duelist ? 3 : 0).setScale(duelist && state.duel?.stage === 'ready' ? 1 + 0.035 * Math.sin(this.time.now / 170) : 1);
       avatar.label.setText(player.name + (player.connected ? '' : ' · offline'));
       avatar.ready.setVisible(Boolean(state.phase === 'lobby' && player.connected && player.ready));
-      avatar.halo.setStrokeStyle(duelist || player.holding ? 4 : 1, player.holding ? 0xf2ca78 : duelist ? 0xffffff : avatar.color, duelist || player.holding ? 1 : 0.4);
+      avatar.halo.setStrokeStyle(duelist || player.holding ? 4 : 1, player.holding ? 0xf6ce68 : duelist ? 0xffffff : avatar.color, duelist || player.holding ? 1 : 0.4);
     }
     const labels = layoutPlayerLabels(state.players.map(p => ({ ...p, width: this.avatars.get(p.id)!.label.width, height: this.avatars.get(p.id)!.label.height })));
     this.labelLines?.clear().lineStyle(1, 0x91a8c0, 0.4);
     for (const player of state.players) {
       const box = labels.get(player.id)!, x = box.x + box.width / 2, y = box.y + box.height / 2;
       this.avatars.get(player.id)!.label.setPosition(x - player.x, y - player.y);
-      if (Math.abs(x - player.x) > 5 || Math.abs(y - player.y) > 42) this.labelLines?.lineBetween(player.x, player.y - 22, x, y + box.height / 2);
+      if (Math.abs(x - player.x) > 5 || Math.abs(y - player.y) > 52) this.labelLines?.lineBetween(player.x, player.y - 30, x, y + box.height / 2);
     }
   }
 }
@@ -131,7 +142,7 @@ export function createArena(parent: HTMLElement) {
   const scene = new ArenaScene();
   const game = new Phaser.Game({
     type: Phaser.AUTO, parent, width: RULES.arenaWidth, height: RULES.arenaHeight,
-    backgroundColor: '#111c2a', scene: [scene], banner: false,
+    backgroundColor: '#0b0d1a', scene: [scene], banner: false,
     render: { antialias: true },
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     audio: { noAudio: true },

@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@500;600;700&display=swap');
 .cf-host {
   --cf-gold:#edc782;
   --cf-muted:#98a6b9;
@@ -668,3 +669,59 @@ body {
   .cf-replay svg { max-height:100px }
 }
 @media(max-width:760px) { .cf-results { position:relative; padding:20px 12px } .cf-phase-ended .cf-canvas { display:none } }
+
+/* ===== Arcade skin (visual only; overrides the base styles above) ===== */
+.cf-host {
+  --cf-gold:#f6ce68; --cf-muted:#a3a8c3; --cf-border:#262b45; --cf-display:'Bungee','Arial Black',Impact,system-ui,sans-serif;
+  color:#f4f1e8; font-family:'Space Grotesk',system-ui,sans-serif;
+  background:radial-gradient(90% 60% at 50% -10%,#2a2350 0%,transparent 60%),radial-gradient(60% 50% at 100% 100%,#1b1236 0%,transparent 60%),#0b0d1a;
+}
+.cf-brand { font-family:var(--cf-display); font-weight:400; font-size:24px; letter-spacing:.08em; text-shadow:0 0 18px #f6ce6855 }
+.cf-welcome h1,.cf-room-heading h1 { font-family:var(--cf-display); font-weight:400; letter-spacing:.01em }
+.cf-welcome h1 { font-size:clamp(46px,6.4vw,88px); line-height:1.02 }
+.cf-welcome h1 em { text-shadow:0 0 30px #f6ce6888 }
+.cf-tag { font-size:11px; letter-spacing:.22em; font-weight:700 }
+.cf-primary { font-family:var(--cf-display); font-weight:400; letter-spacing:.05em; border:0; border-radius:14px; color:#14161f;
+  box-shadow:0 6px 0 #a9822c; transition:transform .08s, box-shadow .08s, background .15s }
+.cf-primary:hover:enabled { background:#ffdc85; transform:translateY(-1px) }
+.cf-primary:active:enabled { transform:translateY(4px); box-shadow:0 2px 0 #a9822c }
+.cf-primary:disabled { box-shadow:none }
+.cf-room-code strong { font-family:var(--cf-display); font-weight:400; font-size:40px; text-shadow:0 0 20px #f6ce6866 }
+.cf-stage-heading { background:#151935; border-color:var(--cf-border); color:#d7d9ea; font-size:11px }
+.cf-round-timer { font-family:var(--cf-display); font-size:clamp(28px,3vw,44px); line-height:1; color:var(--cf-gold); text-shadow:0 0 16px #f6ce6866 }
+.cf-arena-wrap { background:#0b0d1a; border-color:var(--cf-border); box-shadow:0 0 0 1px #f6ce6822, 0 20px 60px #0008 }
+.cf-arena-footer { background:#11142a; border-color:var(--cf-border); color:#b9bdd6; font-size:12px }
+.cf-countdown { background:#0b0d1acc }
+.cf-countdown strong { font-family:var(--cf-display); font-weight:400; font-size:clamp(110px,16vw,220px); text-shadow:0 0 50px #f6ce68aa; margin:18px 0 10px; animation:cf-count-pop 1s ease-out infinite }
+.cf-game-banner { font-family:var(--cf-display); font-size:clamp(16px,2.2vw,30px); letter-spacing:.03em; background:#0b0d1aee; border:2px solid var(--cf-gold); border-radius:14px; box-shadow:0 0 30px #f6ce6844; animation:cf-revenge-in .25s ease-out }
+.cf-join-panel { background:#151935; border-color:#33396a; border-radius:16px }
+.cf-join-panel h2 { font-family:var(--cf-display); font-weight:400; letter-spacing:.02em }
+.cf-qr { border-radius:12px; padding:8px; box-shadow:0 0 0 4px var(--cf-gold) }
+.cf-roster { background:#11142a; border-color:var(--cf-border); border-radius:16px }
+.cf-roster-heading h2 { font-family:var(--cf-display); font-weight:400; font-size:17px; letter-spacing:.04em }
+.cf-roster li { min-height:44px; padding:4px 6px; border-radius:10px }
+.cf-avatar { width:32px; height:32px; border-radius:50%; font-size:13px }
+.cf-player-name { font-size:15px; font-weight:600 }
+.cf-player-name>span[aria-hidden] { font-size:22px; vertical-align:-3px }
+.cf-score { font-family:var(--cf-display); font-size:24px }
+.cf-roster li.is-holder { background:#f6ce681f; box-shadow:0 0 0 2px #f6ce68aa, 0 0 18px #f6ce6844 }
+.cf-crown-mark { font-size:18px }
+.cf-results { background:radial-gradient(60% 60% at 50% 35%,#3a2f12ee,#0b0d1af2 70%) }
+.cf-results>svg { width:56px; height:56px; filter:drop-shadow(0 0 18px #f6ce68aa); animation:cf-bob 1.8s ease-in-out infinite }
+.cf-results>span { font-family:var(--cf-display); font-size:14px; letter-spacing:.2em }
+.cf-results h2 { font-family:var(--cf-display); font-weight:400; font-size:clamp(34px,5.4vw,76px); text-shadow:0 0 40px #f6ce6888 }
+.cf-results p { font-family:var(--cf-display); font-size:22px; color:#f4f1e8 }
+.cf-end-stats article,.cf-replay { background:#151935; border-color:#33396a; border-radius:10px }
+.cf-duel { border:2px solid #ff6b6b; border-radius:16px; background:#14080cf2; box-shadow:0 0 40px #ff6b6b44 }
+.cf-duel h2 { font-family:var(--cf-display); font-weight:400; letter-spacing:.03em }
+.cf-duel-cue { border-color:#fff1b8; background:#3a1218f5 }
+.cf-duel-cue h2 { font-size:clamp(40px,6vw,84px); color:#ff6b6b; text-shadow:0 0 30px #ff6b6baa }
+.cf-duel-rivals { font-size:clamp(14px,1.8vw,24px) }
+.cf-duel-times { font-family:var(--cf-display); font-size:22px }
+.cf-last-stand { font-family:var(--cf-display); font-weight:400 }
+.cf-wanted article { background:#f2e6c9; color:#2a1a0a; border-radius:8px }
+.cf-wanted article span { color:#7a5a3a }
+.cf-wanted>strong { font-family:var(--cf-display); font-weight:400; color:#ff8a8a }
+@keyframes cf-count-pop { 0% { transform:scale(1.25); opacity:.6 } 25% { transform:scale(1); opacity:1 } }
+@keyframes cf-bob { 0%,100% { transform:translateY(0) } 50% { transform:translateY(-6px) } }
+@media(prefers-reduced-motion:reduce) { .cf-countdown strong,.cf-results>svg,.cf-game-banner { animation:none } }

@@ -312,8 +312,9 @@ export function ControllerPage() {
       {player && (!connected || reconnecting) && <p className="ctl-reconnect">Reconnecting… keep this page open</p>}
 
       {(step === 'name' || step === 'joining') && (
-        <section>
-          <h1>Join Crownfall</h1>
+        <section className="ctl-join">
+          <div className="ctl-logo"><span className="ctl-logo-crown" aria-hidden="true">👑</span><span>CROWNFALL</span></div>
+          <p className="ctl-tag">Tilt to run. Yank to steal. Hold the crown.</p>
           <label className="ctl-label" htmlFor="ctl-name">Your name</label>
           <input id="ctl-name" className="ctl-name" value={name} maxLength={20} placeholder="Your name"
             onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && join()} />
@@ -332,6 +333,7 @@ export function ControllerPage() {
 
       {step === 'motion' && (
         <section>
+          <div className="ctl-hero-avatar" aria-hidden="true">{AVATARS[avatar]}</div>
           <h1>Hi {name.trim()}</h1>
           <p>Crownfall uses your phone's motion sensors. Tilt to move, yank to steal.</p>
           <button onClick={enableMotion}>Enable Motion</button>
@@ -360,11 +362,7 @@ export function ControllerPage() {
           <p className="ctl-kicker">ROUND OVER</p>
           <h1>{ended.winnerIds.includes(me ?? '') ? '👑 You win!' : rank ? `#${rank}` : 'Round over'}</h1>
           <p className="ctl-score">{myScore}<span> pts</span></p>
-          <ol className="ctl-board">
-            {[...ended.scores].sort((a, b) => b.score - a.score).map(s => (
-              <li key={s.playerId} className={s.playerId === me ? 'ctl-me' : ''}><span>{s.name}</span><b>{s.score}</b></li>
-            ))}
-          </ol>
+          <Podium scores={[...ended.scores].sort((a, b) => b.score - a.score)} me={me} />
           <p>Waiting for the host to start a rematch…</p>
         </section>
       )}
@@ -377,22 +375,23 @@ export function ControllerPage() {
         <section>
           {phase === 'playing' ? (
             <>
-              <p className="ctl-kicker">{holding ? 'YOU HAVE THE CROWN' : phone?.inRange ? 'IN RANGE' : 'HUNT'}</p>
-              <h1 className="ctl-status">{holding ? '👑 Run!' : phone?.inRange ? 'YANK NOW' : 'Get the crown'}</h1>
-              <p className="ctl-score">{phone?.score ?? 0}<span> pts</span></p>
+              <Identity avatar={AVATARS[avatar]} name={name.trim()} chip={holding ? 'HOLDING' : phone?.inRange ? 'IN RANGE' : 'HUNT'} tone={holding ? 'gold' : phone?.inRange ? 'hot' : 'calm'} />
+              {holding && <div className="ctl-crown-float" aria-hidden="true">👑</div>}
+              <h1 className={`ctl-status ${phone?.inRange && !holding ? 'is-pulse' : ''}`}>{holding ? 'RUN!' : phone?.inRange ? 'YANK NOW' : 'GET THE CROWN'}</h1>
+              <p className="ctl-score" key={phone?.score ?? 0}>{phone?.score ?? 0}<span> pts</span></p>
               {phone?.wantedName && !holding && <WantedPoster name={phone.wantedName} since={wantedSince} inRange={Boolean(phone.inRange)} />}
               <Pad move={move} small />
             </>
           ) : phase === 'countdown' ? (
             <>
-              <p className="ctl-kicker">GET READY</p>
-              <h1 className="ctl-status">Starting…</h1>
+              <Identity avatar={AVATARS[avatar]} name={name.trim()} chip="GET READY" tone="calm" />
+              <h1 className="ctl-status">STARTING…</h1>
               <p>Hold your phone how you calibrated.</p>
             </>
           ) : readySent ? (
             <>
-              <p className="ctl-kicker">LOBBY</p>
-              <h1 className="ctl-status">You're in</h1>
+              <Identity avatar={AVATARS[avatar]} name={name.trim()} chip="LOBBY" tone="calm" />
+              <h1 className="ctl-status">YOU'RE IN</h1>
               <p>Waiting for the host to start. Tilt to warm up.</p>
               <Pad move={move} small />
             </>
@@ -409,6 +408,48 @@ export function ControllerPage() {
 
       {error && <p className="ctl-err">{error}</p>}
     </main>
+  );
+}
+
+function Identity({ avatar, name, chip, tone }: { avatar: string; name: string; chip: string; tone: 'calm' | 'hot' | 'gold' }) {
+  return (
+    <div className="ctl-id">
+      <div className="ctl-id-avatar" aria-hidden="true">{avatar}</div>
+      <div className="ctl-id-text">
+        <span className="ctl-id-name">{name}</span>
+        <span className={`ctl-chip ctl-chip-${tone}`}>{chip}</span>
+      </div>
+    </div>
+  );
+}
+
+function Podium({ scores, me }: { scores: { playerId: string; name: string; score: number }[]; me?: string }) {
+  const top = scores.slice(0, 3);
+  const order = [top[1], top[0], top[2]].filter(Boolean) as typeof top;
+  const rest = scores.slice(3);
+  return (
+    <>
+      <div className="ctl-podium">
+        {order.map(s => {
+          const place = top.indexOf(s) + 1;
+          return (
+            <div key={s.playerId} className={`ctl-step ctl-step-${place} ${s.playerId === me ? 'is-me' : ''}`}>
+              {place === 1 && <span className="ctl-step-crown" aria-hidden="true">👑</span>}
+              <span className="ctl-step-name">{s.name}</span>
+              <span className="ctl-step-score">{s.score}</span>
+              <div className="ctl-step-block">{place}</div>
+            </div>
+          );
+        })}
+      </div>
+      {rest.length > 0 && (
+        <ol className="ctl-board" start={4}>
+          {rest.map((s, i) => (
+            <li key={s.playerId} className={s.playerId === me ? 'ctl-me' : ''}><span>{i + 4}. {s.name}</span><b>{s.score}</b></li>
+          ))}
+        </ol>
+      )}
+    </>
   );
 }
 
