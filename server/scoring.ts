@@ -13,3 +13,19 @@ export function holdPoints(heldMs: number): number {
 export function holderSpeed(heldMs: number): number {
   return Math.max(RULES.holderMinSpeed, RULES.holderSpeed - RULES.holderSlowdown * heldMs / 1000);
 }
+
+/** Score at the moment earned; never multiply a player's existing balance. */
+export function earnedPoints(base: number, now: number, playingAt: number, phase6: boolean): number {
+  return base * (phase6 && now >= playingAt + RULES.roundMs - RULES.lastStandMs ? 2 : 1);
+}
+export function possessionPoints(heldMs: number, elapsed: number, from: number, playingAt: number, phase6: boolean): number {
+  const total = holdPoints(heldMs + elapsed) - holdPoints(heldMs);
+  if (!phase6) return total;
+  let points = 0;
+  // At most 180 thresholds per round, including after a stalled update.
+  for (let i = 1; i <= total; i++) {
+    const earnedAt = from + (holdPoints(heldMs) + i) * RULES.holdPointMs - heldMs;
+    points += earnedPoints(1, earnedAt, playingAt, true);
+  }
+  return points;
+}
