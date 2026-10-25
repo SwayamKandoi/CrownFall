@@ -43,6 +43,10 @@ export class GameRoom {
     const input = this.movement.get(id);
     if (input) { input.x = 0; input.y = 0; input.expiresAt = 0; }
   }
+  removePlayer(id: string): void {
+    this.movement.delete(id);
+    this.players.delete(id);
+  }
   advance(now: number): void {
     // Bound catch-up work to prevent a stalled process from teleporting players or monopolizing the event loop.
     this.accumulator += Math.min(250, Math.max(0, now - this.lastAdvanceAt));

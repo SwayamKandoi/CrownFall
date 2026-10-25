@@ -131,7 +131,8 @@ test('eight clients, room isolation, stale/invalid inputs and snapshot cadence',
   a.host.on('state:snapshot', receive);
   await sleep(1000);
   a.host.off('state:snapshot', receive);
-  assert.ok(samples.length >= 10 && samples.length <= 20, 'roughly 15 snapshots/s, actual=' + samples.length);
+  assert.ok(samples.length >= 25 && samples.length <= 34, 'roughly 30 snapshots/s, actual=' + samples.length);
+  assert.ok(samples.every((s, i) => i === 0 || s.tick > samples[i - 1].tick), 'no duplicate periodic snapshot ticks');
   const ticks = samples.at(-1)!.tick - samples[0].tick;
   assert.ok(ticks >= 23 && ticks <= 34, 'roughly 30 simulation ticks/s, actual=' + ticks);
   assert.ok(samples.every(s => s.players.every(p => p.x >= 0 && p.x <= 960 && p.y >= 0 && p.y <= 540)));

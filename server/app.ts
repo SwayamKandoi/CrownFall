@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import type { Ack, ActionError, ClientToServerEvents, ServerToClientEvents } from '../shared/events.js';
 import { RULES } from '../shared/constants.js';
-import { RoomManager, failure } from './RoomManager.js';
+import { RoomManager, failure, type Room } from './RoomManager.js';
 import { exact, finite, roomCode, RateLimit } from './validation.js';
 
 interface Membership { code: string; playerId?: string }
@@ -23,24 +23,28 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
     app.use(express.static(clientDir));
     app.get('*', (_req, res) => res.sendFile(clientDir + '/index.html'));
   }
+  const lastSnapshotTicks = new WeakMap<Room, number>();
   function broadcast(code: string) {
-    if (!rooms.rooms.has(code)) return;
+    const room = rooms.rooms.get(code);
+    if (!room) return;
     const snapshot = rooms.snapshot(code);
+    lastSnapshotTicks.set(room, snapshot.tick);
     io.to(code).emit('state:snapshot', snapshot);
     for (const [socketId, member] of memberships) if (member.code === code && member.playerId) {
       const player = rooms.rooms.get(code)?.players.get(member.playerId);
       if (player) io.to(socketId).emit('phone:state', { phase: snapshot.phase, holding: player.holding, score: player.score, inRange: false, wantedName: null, duel: null });
     }
   }
-  let nextSnapshotAt = performance.now();
   const interval = setInterval(() => {
-    rooms.advance();
-    const now = performance.now();
-    if (now >= nextSnapshotAt) {
-      nextSnapshotAt = Math.max(nextSnapshotAt + 1000 / RULES.snapshotHz, now);
-      for (const code of rooms.rooms.keys()) broadcast(code);
+    const changed = new Set(rooms.advance());
+    for (const [code, room] of rooms.rooms) {
+      // Publish each new simulation tick at most once; roster/phase changes still publish immediately.
+      const ticksSinceSnapshot = room.game.tick - (lastSnapshotTicks.get(room) ?? -Infinity);
+      if (changed.has(code) || ticksSinceSnapshot >= RULES.simulationHz / RULES.snapshotHz) broadcast(code);
     }
-  }, 1000 / RULES.simulationHz);
+  // Wake twice per fixed step so timer jitter does not skip snapshot boundaries.
+  // GameRoom still advances at 30 Hz; unchanged ticks never cause periodic broadcasts.
+  }, 1000 / (RULES.simulationHz * 2));
   interval.unref();
   http.on('close', () => { clearInterval(interval); rooms.dispose(); memberships.clear(); });
   io.on('connection', socket => {

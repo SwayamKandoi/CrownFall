@@ -1,6 +1,6 @@
 import type { Snapshot } from '../../shared/events.js';
 
-/** Render ~100 ms behind receipt time, interpolate only positions, never predict game decisions. */
+/** Render ~50 ms behind receipt time, interpolate only positions, never predict game decisions. */
 export class SnapshotBuffer {
   private frames: { at: number; state: Snapshot }[] = [];
   push(state: Snapshot, at = performance.now()): void {
@@ -10,7 +10,7 @@ export class SnapshotBuffer {
   }
   sample(now = performance.now()): Snapshot | undefined {
     if (!this.frames.length) return undefined;
-    const target = now - 100;
+    const target = now - 50;
     let before = this.frames[0], after = this.frames.at(-1)!;
     for (const frame of this.frames) {
       if (frame.at <= target) before = frame;

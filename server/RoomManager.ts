@@ -6,6 +6,7 @@ import { GameRoom } from './GameRoom.js';
 export interface Room {
   code: string; hostToken: string; players: Map<string, PlayerState>;
   game: GameRoom; hostConnected: boolean; lastOccupiedAt: number;
+  lobbyDisconnects: Map<string, number>;
 }
 export const failure = (code: ActionError['error']['code'], message: string): ActionError => ({ error: { code, message } });
 export const OK = { ok: true } as const;
@@ -18,7 +19,7 @@ export class RoomManager {
     do { code = Array.from({ length: 5 }, () => alphabet[randomInt(alphabet.length)]).join(''); } while (this.rooms.has(code));
     const hostToken = randomBytes(32).toString('hex');
     const players = new Map<string, PlayerState>();
-    this.rooms.set(code, { code, hostToken, players, game: new GameRoom(players, this.now()), hostConnected: true, lastOccupiedAt: this.now() });
+    this.rooms.set(code, { code, hostToken, players, game: new GameRoom(players, this.now()), hostConnected: true, lastOccupiedAt: this.now(), lobbyDisconnects: new Map() });
     return { roomCode: code, hostToken, joinUrl: origin + '/play/' + code };
   }
   join(code: string, name: string): JoinResult | ActionError {
@@ -27,8 +28,9 @@ export class RoomManager {
     if (room.game.phase !== 'lobby') return failure('INVALID_PHASE', 'Joining is only available in the lobby.');
     if (room.players.size >= RULES.maxPlayers) return failure('ROOM_FULL', 'Room has eight players.');
     const id = randomUUID();
-    const color = PLAYER_COLORS[room.players.size];
-    const slot = room.players.size;
+    const usedColors = new Set([...room.players.values()].map(player => player.color));
+    const slot = PLAYER_COLORS.findIndex(color => !usedColors.has(color));
+    const color = PLAYER_COLORS[slot];
     room.players.set(id, { id, name, color, x: 180 + slot % 4 * 200, y: slot < 4 ? 180 : 360,
       score: 0, holding: false, connected: true, inDuel: false, wantedId: null, ready: false });
     room.lastOccupiedAt = this.now();
@@ -59,7 +61,10 @@ export class RoomManager {
     if (!room) return;
     if (id) {
       const player = room.players.get(id);
-      if (player) { player.connected = false; player.ready = false; }
+      if (player) {
+        player.connected = false; player.ready = false;
+        if (room.game.phase === 'lobby' && !room.lobbyDisconnects.has(id)) room.lobbyDisconnects.set(id, this.now());
+      }
       room.game.disconnect(id);
     } else room.hostConnected = false;
     room.lastOccupiedAt = this.now();
@@ -70,7 +75,22 @@ export class RoomManager {
     for (const room of this.rooms.values()) {
       const phase = room.game.phase;
       room.game.advance(now);
-      if (phase !== room.game.phase) changed.push(room.code);
+      let rosterChanged = false;
+      if (room.game.phase === 'lobby') {
+        for (const [id, disconnectedAt] of room.lobbyDisconnects) {
+          const player = room.players.get(id);
+          if (!player || player.connected) room.lobbyDisconnects.delete(id);
+          else if (now - disconnectedAt >= RULES.disconnectDropMs) {
+            room.game.removePlayer(id);
+            room.lobbyDisconnects.delete(id);
+            rosterChanged = true;
+          }
+        }
+      } else {
+        // A start during the grace period must preserve the complete active-game roster.
+        room.lobbyDisconnects.clear();
+      }
+      if (phase !== room.game.phase || rosterChanged) changed.push(room.code);
       if (room.hostConnected || [...room.players.values()].some(p => p.connected)) room.lastOccupiedAt = now;
       else if (now - room.lastOccupiedAt >= this.emptyTtlMs) { room.game.dispose(); this.rooms.delete(room.code); }
     }

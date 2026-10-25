@@ -5,6 +5,7 @@ import { io, type Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '../shared/events.js';
 import { createApp } from '../server/app.js';
 import { RoomManager } from '../server/RoomManager.js';
+import { waitSnapshot } from './support/socketHarness.js';
 
 test('rooms have unique codes, random tokens and a strict eight-player capacity', () => {
   const manager = new RoomManager();
@@ -37,7 +38,7 @@ test('HTTP and real Socket.IO host/join/clock/validation/disconnect flow', { tim
   assert.ok(!('error' in created));
   if ('error' in created) return;
   const phone = await connect();
-  const update = new Promise<import('../shared/events.js').Snapshot>(resolve => host.once('state:snapshot', resolve));
+  const update = waitSnapshot(host, state => state.players.some(player => player.name === 'Swayam'));
   const joined = await phone.emitWithAck('room:join', { roomCode: created.roomCode, name: ' Swayam ' });
   assert.ok(!('error' in joined));
   assert.equal((await update).players[0].name, 'Swayam');
@@ -51,7 +52,7 @@ test('HTTP and real Socket.IO host/join/clock/validation/disconnect flow', { tim
   assert.ok('error' in rejected && rejected.error.code === 'INVALID_PAYLOAD');
   const unsupported = await host.emitWithAck('host:start', { hostToken: created.hostToken });
   assert.ok('error' in unsupported && unsupported.error.code === 'NOT_READY');
-  const disconnected = new Promise<import('../shared/events.js').Snapshot>(resolve => host.once('state:snapshot', resolve));
+  const disconnected = waitSnapshot(host, state => state.players.some(player => !player.connected));
   phone.disconnect();
   assert.equal((await disconnected).players[0].connected, false);
 });

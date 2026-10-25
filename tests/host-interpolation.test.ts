@@ -4,7 +4,7 @@ import { SnapshotBuffer } from '../client/host/interpolation.js';
 import { RoomManager } from '../server/RoomManager.js';
 import { success } from './support/socketHarness.js';
 
-test('renderer interpolates positions without predicting authoritative fields and converges when updates stop', () => {
+test('renderer interpolates 50 ms behind receipt without predicting and converges when updates stop', () => {
   let now = 0;
   const manager = new RoomManager(() => now);
   const room = manager.create('https://example.test');
@@ -15,10 +15,11 @@ test('renderer interpolates positions without predicting authoritative fields an
   const buffer = new SnapshotBuffer();
   assert.equal(buffer.sample(0), undefined);
   buffer.push(a, 0); buffer.push(b, 100);
-  const halfway = buffer.sample(150)!;
+  const halfway = buffer.sample(100)!;
   assert.equal(halfway.players[0].x, a.players[0].x + 50);
   assert.equal(halfway.phase, 'playing');
   assert.equal(halfway.players[0].score, 5);
+  assert.equal(buffer.sample(150)!.players[0].x, b.players[0].x);
   assert.equal(buffer.sample(1000)!.players[0].x, b.players[0].x);
   buffer.push(a, 1100); // Older ticks may not rewind the scene.
   assert.equal(buffer.sample(1300)!.tick, 2);
