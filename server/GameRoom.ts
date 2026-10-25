@@ -245,7 +245,8 @@ export class GameRoom {
         const holder = this.players.get(outcome.holderId)!;
         if (holder.id !== this.heldBy) {
           const previousHolder = this.heldBy!;
-          outcome.event.points = this.stealCrown(holder, previousHolder, now);
+          const cleanDraw = outcome.event.reactionMs !== undefined && !this.duel.phone(holder.id)?.foul && !this.duel.phone(previousHolder)?.foul;
+          outcome.event.points = this.stealCrown(holder, previousHolder, now, cleanDraw);
         } else if (outcome.winnerId) outcome.event.points = this.award(holder, outcome.points, now);
         this.immuneUntil = now + RULES.immunityMs;
         this.releaseDuelists(now); this.accountedAt = now;
@@ -309,8 +310,8 @@ export class GameRoom {
     player.score += points;
     return points;
   }
-  private stealCrown(player: PlayerState, victim: string, now: number): number {
-    const revenge = this.phase6?.steal(player.id, victim, now) ?? false;
+  private stealCrown(player: PlayerState, victim: string, now: number, allowRevenge = true): number {
+    const revenge = this.phase6?.steal(player.id, victim, now, allowRevenge) ?? false;
     this.giveCrown(player, now);
     const points = this.award(player, revenge ? RULES.revengePoints : RULES.stealPoints, now);
     const event = { eventId: randomUUID(), type: 'CROWN_STOLEN' as const, actorId: player.id, victimId: victim, points,

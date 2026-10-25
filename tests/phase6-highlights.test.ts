@@ -6,6 +6,7 @@ import { RoundHighlights, MAX_HISTORY_FRAMES } from '../server/highlights.js';
 import { roundStats } from '../client/host/roundStatistics.js';
 import { RoundStats } from '../client/host/RoundStats.js';
 import { replayPosition } from '../client/host/ReplayPanel.js';
+import { layoutPlayerLabels } from '../client/host/labelLayout.js';
 import type { GameEvent } from '../shared/events.js';
 import { phase6Fixture } from './support/phase6Fixture.js';
 import { success } from './support/socketHarness.js';
@@ -96,4 +97,17 @@ test('host statistics deduplicate events, use stable ties and omit invented data
   const frames = [{ t: 0, ax: 0, ay: 0, bx: 100, by: 100 }, { t: 1000, ax: 100, ay: 100, bx: 200, by: 200 }];
   assert.deepEqual(replayPosition(frames, 500), { ax: 50, ay: 50, bx: 150, by: 150 });
   assert.equal(replayPosition(frames, 9000)?.ax, 100);
+});
+
+test('eight crowded long-name labels stay distinct, deterministic and inside the arena', () => {
+  for (const [x, y] of [[480, 270], [18, 18], [942, 522]]) {
+    const input = Array.from({ length: 8 }, (_, i) => ({ id: String(i), x, y, width: 150, height: 16 }));
+    const layout = layoutPlayerLabels(input);
+    assert.deepEqual(layout, layoutPlayerLabels([...input].reverse()));
+    const boxes = [...layout.values()];
+    for (const [i, box] of boxes.entries()) {
+      assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 960 && box.y + box.height <= 540);
+      for (const other of boxes.slice(i + 1)) assert.ok(box.x >= other.x + other.width || box.x + box.width <= other.x || box.y >= other.y + other.height || box.y + box.height <= other.y);
+    }
+  }
 });

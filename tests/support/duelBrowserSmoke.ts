@@ -28,7 +28,7 @@ export async function duelBrowserSmoke(browser: Browser, phase6Enabled = false):
     const code = await page.locator('.cf-room-code strong').innerText();
     const room = server.rooms.rooms.get(code)!;
     const ids: string[] = [];
-    for (const name of ['Ruby', 'Mint', 'Violet', 'Gold']) {
+    for (const name of (phase6Enabled ? ['Ruby', 'Mint', 'Violet', 'Gold', 'Sky', 'Ember', 'Rose', 'Lime'] : ['Ruby', 'Mint', 'Violet', 'Gold'])) {
       const socket: Client = io(origin, { transports: ['websocket'], reconnection: false });
       clients.push(socket);
       await new Promise<void>((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
@@ -36,7 +36,7 @@ export async function duelBrowserSmoke(browser: Browser, phase6Enabled = false):
       ids.push(joined.playerId);
       success(await socket.timeout(1500).emitWithAck('player:ready', { calibrated: true }));
     }
-    ids.forEach((id, i) => Object.assign(room.players.get(id)!, { x: [480, 550, 700, 800][i], y: 270 }));
+    ids.forEach((id, i) => Object.assign(room.players.get(id)!, { x: [480, 550, 700, 800, 180, 320, 640, 780][i], y: i < 4 ? 270 : 420 }));
     await page.getByRole('button', { name: 'Start the arena' }).click();
     await page.locator('.cf-countdown').waitFor();
     let update = waitSnapshot(clients[0], s => s.phase === 'playing'); now = phase6Enabled ? 16000 : 3000 + RULES.rushMs; await update;
@@ -72,6 +72,10 @@ export async function duelBrowserSmoke(browser: Browser, phase6Enabled = false):
     if (phase6Enabled) {
       await page.locator('.cf-replay').filter({ hasText: 'SLOW MOTION' }).waitFor();
       assert.match(await page.locator('.cf-replay').innerText(), /100 ms/);
+      await page.setViewportSize({ width: 1280, height: 720 });
+      assert.equal(await page.locator('.cf-roster li').count(), 8);
+      const replayBox = await page.locator('.cf-replay').boundingBox();
+      assert.ok(replayBox && replayBox.y + replayBox.height <= 720, 'eight-player replay fits below scoreboard');
       await page.screenshot({ path: 'dist/verification/phase6-replay.png', fullPage: true });
       success(await clients[2].timeout(1500).emitWithAck('input:move', { seq: 2, x: 1, y: 0 }));
       const x = room.players.get(ids[2])!.x; update = waitSnapshot(clients[0], state => state.players[2].x > x); now += 100; await update;

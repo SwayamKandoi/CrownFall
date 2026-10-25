@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { RULES, AVATARS, isAvatarId } from '../../shared/constants.js';
 import type { GameEvent, Snapshot } from '../../shared/events.js';
 import { SnapshotBuffer } from './interpolation.js';
+import { layoutPlayerLabels } from './labelLayout.js';
 
 interface Avatar { root: Phaser.GameObjects.Container; label: Phaser.GameObjects.Text; ready: Phaser.GameObjects.Arc; halo: Phaser.GameObjects.Arc; color: number }
 export class ArenaScene extends Phaser.Scene {
@@ -15,6 +16,7 @@ export class ArenaScene extends Phaser.Scene {
   private finale?: Phaser.GameObjects.Graphics;
   private gem?: Phaser.GameObjects.Graphics;
   private sparkles = new Set<Phaser.GameObjects.Text>();
+  private labelLines?: Phaser.GameObjects.Graphics;
   constructor() { super('CrownfallArena'); }
   accept(snapshot: Snapshot): void { this.buffer.push(snapshot); }
   create(): void {
@@ -28,6 +30,7 @@ export class ArenaScene extends Phaser.Scene {
     graphics.lineStyle(1, 0xcaa65e, 0.15).strokeCircle(480, 270, 85);
     this.duelShade = this.add.rectangle(480, 270, 960, 540, 0x050a12, 0).setDepth(2);
     this.finale = this.add.graphics().setDepth(1);
+    this.labelLines = this.add.graphics().setDepth(4);
     this.gem = this.add.graphics().setDepth(5).setVisible(false);
     this.gem.fillStyle(0x5eead4, 0.15).fillCircle(0, 0, 28);
     this.gem.fillStyle(0x6fffe5).fillPoints([new Phaser.Geom.Point(0, -18), new Phaser.Geom.Point(14, 0),
@@ -111,13 +114,15 @@ export class ArenaScene extends Phaser.Scene {
       const duelist = state.duel?.a === player.id || state.duel?.b === player.id;
       avatar.root.setDepth(duelist ? 3 : 0).setScale(duelist && state.duel?.stage === 'ready' ? 1 + 0.035 * Math.sin(this.time.now / 170) : 1);
       avatar.label.setText(player.name + (player.connected ? '' : ' · offline'));
-      const halfLabel = avatar.label.width / 2 + 6;
-      avatar.label.setPosition(
-        Math.max(halfLabel, Math.min(RULES.arenaWidth - halfLabel, player.x)) - player.x,
-        player.y < 54 ? 37 : -37,
-      );
       avatar.ready.setVisible(Boolean(state.phase === 'lobby' && player.connected && player.ready));
       avatar.halo.setStrokeStyle(duelist || player.holding ? 4 : 1, player.holding ? 0xf2ca78 : duelist ? 0xffffff : avatar.color, duelist || player.holding ? 1 : 0.4);
+    }
+    const labels = layoutPlayerLabels(state.players.map(p => ({ ...p, width: this.avatars.get(p.id)!.label.width, height: this.avatars.get(p.id)!.label.height })));
+    this.labelLines?.clear().lineStyle(1, 0x91a8c0, 0.4);
+    for (const player of state.players) {
+      const box = labels.get(player.id)!, x = box.x + box.width / 2, y = box.y + box.height / 2;
+      this.avatars.get(player.id)!.label.setPosition(x - player.x, y - player.y);
+      if (Math.abs(x - player.x) > 5 || Math.abs(y - player.y) > 42) this.labelLines?.lineBetween(player.x, player.y - 22, x, y + box.height / 2);
     }
   }
 }

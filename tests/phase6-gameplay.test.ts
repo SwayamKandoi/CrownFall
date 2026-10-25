@@ -71,6 +71,20 @@ test('failed revenge duel and cancellation do not claim revenge', () => {
   }
 });
 
+test('a foul-decided crown transfer earns ordinary points, not a revenge bonus', () => {
+  for (const challengerResponds of [false, true]) {
+    const f = phase6Fixture({ duelsEnabled: true });
+    success(f.yank('b', 18000)); f.advance(19000); success(f.yank('b', 19100)); f.advance(20750);
+    success(f.yank('a', 23000)); success(f.yank('b', 23100)); f.advance(24000);
+    if (challengerResponds) success(f.yank('a', 24100));
+    const before = f.players.get('a')!.score; f.advance(25750);
+    assert.equal(f.game.snapshot(f.now).crown.heldBy, 'a');
+    assert.equal(f.players.get('a')!.score - before, 3);
+    assert.equal(f.players.get('a')!.wantedId, null);
+    assert.equal(f.game.drainEvents().filter(e => e.type === 'REVENGE').length, 0);
+  }
+});
+
 test('gems follow 25/50/75-second schedule and expire exactly eight seconds later', () => {
   const f = phase6Fixture({ random: () => 1 });
   for (const elapsed of [25000, 50000, 75000]) {
@@ -138,6 +152,20 @@ test('scoring thresholds crossing Last Stand are doubled only when earned, even 
   f.advance(78000); assert.equal(f.players.get('a')!.score, 151);
   f.advance(93000); assert.equal(f.players.get('a')!.score, 211);
   assert.equal(f.game.drainEnded()[0].scores[0].score, 211);
+  const regular = phase6Fixture();
+  for (let frame = 1; frame <= 2700; frame++) regular.advance(PLAYING + frame * 1000 / RULES.simulationHz);
+  assert.equal(regular.players.get('a')!.score, 211, 'fixed-step accrual matches a delayed update');
+});
+
+test('an unclaimed crown and an edge gem stay inside shrinking bounds', () => {
+  const f = phase6Fixture({ random: () => 1 });
+  Object.assign(f.players.get('a')!, { x: 940, y: 520 });
+  f.game.disconnect('a', 75000); f.advance(77000);
+  assert.equal(f.game.snapshot(f.now).crown.heldBy, null);
+  f.advance(81000);
+  const state = f.game.snapshot(f.now), crownBounds = arenaBounds(state.arenaScale), gemBounds = arenaBounds(state.arenaScale, GEM_PICKUP_RADIUS);
+  assert.ok(state.crown.x <= crownBounds.right && state.crown.y <= crownBounds.bottom);
+  assert.ok(state.gem && state.gem.x <= gemBounds.right && state.gem.y <= gemBounds.bottom);
 });
 
 test('Last Stand revenge awards +12 total and defense +4, with matching result/event points', () => {

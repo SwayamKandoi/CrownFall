@@ -6,7 +6,7 @@ CrownFall is a multiplayer motion-controlled party game built for HackPSU's Myst
 
 The current game supports **2–8 players**, with **4+ players** as the intended hackathon group demo. Phase 3 gameplay is implemented and merged into `main`. See [Phase 3 integration notes](server/PHASE3.md) for protocol details and verification status.
 
-[Phase 4 draw-off duels](server/PHASE4.md) provide opt-in server/host integration code. The flag is **disabled by default**; phone duel/stillness integration and contract approval remain outstanding. The default game below continues to use Phase 3 direct stealing.
+Phase 5 adds avatar picks, phone resume/takeover, taunts, audio and the phone duel flow. `CROWNFALL_DUELS=1` selects draw-off duels; unset it for direct stealing. [Phase 6](server/PHASE6.md) adds Wanted/revenge, vault gems, Last Stand, approach replay and round highlights behind the independent **disabled-by-default `CROWNFALL_PHASE6=1` flag**.
 
 ## What you can play today
 
@@ -99,10 +99,12 @@ The build writes the client to `dist/client` and server to `dist/server`. Produc
 
 ### Deployment configuration
 
-Use a persistent Node service with HTTPS termination and WebSocket support. This README does not certify which revision is currently deployed.
+Use a persistent Node service with HTTPS termination and WebSocket support. The team reports the production origin is now **https://crownfall-sqi0.onrender.com**; the previous Render service is deleted. This README does not certify the deployed revision or enable Phase 6.
 
 | Variable | Usage |
 | --- | --- |
+| `CROWNFALL_PHASE6` | Set exactly `1` to opt into Wanted, gems, Last Stand and highlights; otherwise Phase 5 gameplay remains. |
+| `CROWNFALL_DUELS` | Set exactly `1` for draw-off duels; independent of Phase 6. |
 | `PORT` | Server listening port; defaults to `3000`. Use the port supplied by the hosting provider. |
 | `PUBLIC_ORIGIN` | Set to the public HTTPS origin for shared/deployed use, without a path or trailing slash, e.g. `https://your-app.example`. Used for canonical `room:create` join links; omitted values fall back to localhost. For desktop development, `http://localhost:5173` matches Vite. |
 | `NODE_VERSION` | Hosting-provider runtime selection, where supported; the team's Render configuration uses `20`. The application itself requires Node.js 20+ through `package.json`. |
@@ -111,7 +113,7 @@ Host QR codes use the current browser origin. No database or API credentials are
 
 ## Testing and verification status
 
-`npm test` runs the **29 Phase 3 regression tests** plus opt-in Phase 4 tests using Node's test runner through `tsx`. Phase 3 coverage includes:
+`npm test` runs Phase 3/4, opening Rush, Phase 5 and opt-in Phase 6 tests using Node's test runner through `tsx`. Phase 3 coverage includes:
 
 - Deterministic crown pickup, contested pickups, 500 ms scoring, slowdown and delayed disconnect drops.
 - Yank validation, epoch timestamps, per-event sequence/replay checks, out-of-order inputs, authoritative range, cooldowns, immunity and competing challengers.
@@ -128,7 +130,7 @@ npm run build
 npm run test:host
 ```
 
-It checks QR joining, the two-player readiness minimum, four moving socket clients, one Phaser canvas, pickup/steal banners, scoreboard, timer, winners, rematch and responsive layout. It advances an injected server clock for the round ending and saves screenshots under ignored `dist/verification/`. Edge must be installed, or set `CROWNFALL_BROWSER_EXECUTABLE` to a Chromium-family browser executable; `playwright-core` does not download a browser. This check passed during Phase 3 implementation.
+It checks QR joining, the two-player readiness minimum, four moving socket clients, one Phaser canvas, pickup/steal banners, scoreboard, timer, winners, rematch and responsive layout. It advances an injected server clock for the round ending and saves screenshots under ignored `dist/verification/`. Edge must be installed, or set `CROWNFALL_BROWSER_EXECUTABLE` to a Chromium-family browser executable; `playwright-core` does not download a browser. It also checks Phase 6 gems, revenge, finale, replay, statistics and eight-player layouts at 1920x1080, 1280x720 and 1024x768.
 
 Physical-device verification is tracked separately:
 
@@ -138,9 +140,9 @@ Physical-device verification is tracked separately:
 
 ## Limitations and future work
 
-The playable default Phase 3 loop uses direct stealing. Draw-off duels require completion of the [Phase 4 phone integration](server/PHASE4.md) before production use. Revenge mechanics, vault gems, Last Stand, announcer support and advanced audiovisual polish remain future work. Reserved constants and event types for those features do not mean they are active.
+The flag-off fallback preserves Phase 5 gameplay. Phase 6 is implemented for integration review, with rules, scoring conventions, event semantics and the concise phone/announcer handoff in [server/PHASE6.md](server/PHASE6.md). Its real-device playtest and production enablement remain team decisions; this work does not deploy it.
 
-Reconnect/resume and host refresh recovery are not implemented. A host connection loss requires creating a new room after reconnecting. Unoccupied rooms expire after 60 seconds. Phone feedback currently labels an unavailable yank as “Too far,” including cooldown/immunity, and its ordinal tied-rank display can differ from the host's shared ranks; every tied winner is still included in the server's `winnerIds`. Sensor permissions and haptic support vary by device/browser. The Phaser bundle is loaded when a host room opens and still produces a large-chunk build warning.
+Phase 5 supports token-based phone resume and socket takeover; host refresh recovery remains unsupported. A host connection loss requires creating a new room after reconnecting. Unoccupied rooms expire after 60 seconds. Phone feedback currently labels an unavailable yank as “Too far,” including cooldown/immunity, and its ordinal tied-rank display can differ from the host's shared ranks; every tied winner is still included in the server's `winnerIds`. Sensor permissions and haptic support vary by device/browser. The Phaser bundle is loaded when a host room opens and still produces a large-chunk build warning.
 
 ## Team, credits and license
 

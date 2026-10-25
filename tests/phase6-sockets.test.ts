@@ -35,6 +35,7 @@ for (const duelsEnabled of [false, true]) test(`Phase 6 eight sockets: Wanted, g
   update = waitSnapshot(a.host, s => s.phase === 'ended'); now = 93000; const ended = await update; await sleep(30);
   assert.equal(ended.players.length, 8); assert.equal(ended.lastStand, false);
   assert.equal(events.filter(e => e.type === 'LAST_STAND').length, 1);
+  assert.equal(events.filter(e => e.type === 'PLAY_OF_GAME').length, 1);
   assert.ok(events.some(e => e.type === 'GEM_TAKEN' && e.points === 5));
   assert.equal(h.rooms.snapshot(other.created.roomCode).phase, 'lobby');
   assert.equal(h.rooms.snapshot(other.created.roomCode).gem, null);

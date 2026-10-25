@@ -57,10 +57,10 @@ export class Phase6 {
     this.gem = null;
     return { player: candidates[0], x: gem.x, y: gem.y };
   }
-  steal(thief: string, victim: string, now: number): boolean {
+  steal(thief: string, victim: string, now: number, allowRevenge = true): boolean {
     const wanted = this.wanted.get(thief);
-    const revenge = wanted?.target === victim && now < wanted.until;
-    if (revenge) this.clearWanted(thief);
+    const revenge = allowRevenge && wanted?.target === victim && now < wanted.until;
+    if (wanted?.target === victim) this.clearWanted(thief);
     this.wanted.set(victim, { target: thief, until: now + RULES.revengeMs });
     this.players.get(victim)!.wantedId = thief;
     return revenge;

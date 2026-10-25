@@ -16,7 +16,8 @@ export function holderSpeed(heldMs: number): number {
 
 /** Score at the moment earned; never multiply a player's existing balance. */
 export function earnedPoints(base: number, now: number, playingAt: number, phase6: boolean): number {
-  return base * (phase6 && now >= playingAt + RULES.roundMs - RULES.lastStandMs ? 2 : 1);
+  // Match holdPoints' sub-microsecond tolerance for accumulated 30 Hz step rounding.
+  return base * (phase6 && now + 1e-7 >= playingAt + RULES.roundMs - RULES.lastStandMs ? 2 : 1);
 }
 export function possessionPoints(heldMs: number, elapsed: number, from: number, playingAt: number, phase6: boolean): number {
   const total = holdPoints(heldMs + elapsed) - holdPoints(heldMs);
