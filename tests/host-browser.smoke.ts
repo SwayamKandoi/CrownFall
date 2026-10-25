@@ -91,6 +91,7 @@ try {
   await page.getByRole('heading', { name: 'Live scoreboard' }).waitFor();
   assert.match(await page.locator('.cf-round-timer').innerText(), /^1:[0-5][0-9]$/);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  clockOffset += RULES.rushMs; // Advance past Rush without a real-time wait.
   success(await clients[1].timeout(2000).emitWithAck('input:yank', { seq: 10001, ts: Date.now() + clockOffset }));
   await page.locator('.cf-game-banner').filter({ hasText: 'stole the crown' }).waitFor();
   await page.locator('.cf-roster li.is-holder').filter({ hasText: 'Browser Player 2' }).waitFor();

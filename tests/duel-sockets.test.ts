@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import type { GameEvent, PhoneState } from '../shared/events.js';
 import { errorCode, harness, rawAck, sleep, success, waitSnapshot } from './support/socketHarness.js';
 
+import { RULES } from '../shared/constants.js';
+
 const EPOCH = 1_800_000_000_000;
 test('four real sockets: duel events, phone states, jittered reactions, movement, result and rematch', { timeout: 10000 }, async t => {
   let now = 0;
@@ -17,7 +19,7 @@ test('four real sockets: duel events, phone states, jittered reactions, movement
   ids.forEach((id, i) => Object.assign(room.players.get(id)!, { x: [480, 520, 700, 800][i], y: 270 }));
   for (const p of a.players) success(await p.socket.timeout(1500).emitWithAck('player:ready', { calibrated: true }));
   success(await a.host.timeout(1500).emitWithAck('host:start', { hostToken: a.created.hostToken }));
-  let state = waitSnapshot(a.host, s => s.phase === 'playing'); now = 3000; await state;
+  let state = waitSnapshot(a.host, s => s.phase === 'playing'); now = 3000 + RULES.rushMs; await state;
   assert.equal(errorCode(await rawAck(a.host, 'input:yank', { seq: 1, ts: EPOCH + now })), 'UNAUTHORIZED');
   for (const p of a.players) success(await p.socket.timeout(1500).emitWithAck('input:move', { seq: 100, x: 1, y: 0 }));
   state = waitSnapshot(a.host, s => s.duel?.stage === 'ready');
@@ -30,23 +32,23 @@ test('four real sockets: duel events, phone states, jittered reactions, movement
   assert.deepEqual(events.filter(e => e.type.startsWith('DUEL_')).map(e => e.type), ['DUEL_START', 'DUEL_READY']);
   assert.ok(events.filter(e => e.type.startsWith('DUEL_')).every(e => e.cueAt === undefined));
   assert.equal(errorCode(await rawAck(a.players[2].socket, 'input:yank', { seq: 51, ts: EPOCH + now })), 'NOT_READY');
-  state = waitSnapshot(a.host, s => s.players[2].x > 700); now = 3100;
+  state = waitSnapshot(a.host, s => s.players[2].x > 700); now = 3100 + RULES.rushMs;
   const moved = await state;
   assert.equal(moved.players[0].x, 480); assert.equal(moved.players[1].x, 520);
   assert.ok(moved.players[3].x > 800);
-  state = waitSnapshot(a.host, s => s.duel?.stage === 'cue'); now = 4000; await state; await sleep(30);
+  state = waitSnapshot(a.host, s => s.duel?.stage === 'cue'); now = 4000 + RULES.rushMs; await state; await sleep(30);
   const cue = events.find(e => e.type === 'DUEL_CUE')!;
-  assert.equal(cue.cueAt, EPOCH + 4000);
+  assert.equal(cue.cueAt, EPOCH + 4000 + RULES.rushMs);
   // Holder's slower action arrives first. Challenger's faster synchronized timestamp arrives later.
-  now = 4400;
-  success(await a.players[0].socket.timeout(1500).emitWithAck('input:yank', { seq: 50, ts: EPOCH + 4300 }));
-  now = 4500;
-  success(await a.players[1].socket.timeout(1500).emitWithAck('input:yank', { seq: 51, ts: EPOCH + 4150 }));
-  assert.equal(errorCode(await rawAck(a.players[1].socket, 'input:yank', { seq: 51, ts: EPOCH + 4150 })), 'STALE_INPUT');
+  now = 4400 + RULES.rushMs;
+  success(await a.players[0].socket.timeout(1500).emitWithAck('input:yank', { seq: 50, ts: EPOCH + 4300 + RULES.rushMs }));
+  now = 4500 + RULES.rushMs;
+  success(await a.players[1].socket.timeout(1500).emitWithAck('input:yank', { seq: 51, ts: EPOCH + 4150 + RULES.rushMs }));
+  assert.equal(errorCode(await rawAck(a.players[1].socket, 'input:yank', { seq: 51, ts: EPOCH + 4150 + RULES.rushMs })), 'STALE_INPUT');
   assert.equal(events.some(e => e.type === 'DUEL_RESULT'), false, 'full response window remains open');
-  state = waitSnapshot(a.host, s => s.duel?.stage === 'done'); now = 5750;
+  state = waitSnapshot(a.host, s => s.duel?.stage === 'done'); now = 5750 + RULES.rushMs;
   const done = await state; await sleep(30);
-  assert.equal(done.crown.heldBy, ids[1]); assert.equal(done.players[1].score, 3); assert.equal(done.players[0].score, 0);
+  assert.equal(done.crown.heldBy, ids[1]); assert.equal(done.players[1].score, 3); assert.equal(done.players[0].score, RULES.rushMs / RULES.holdPointMs);
   assert.ok(done.players.every(p => !p.inDuel));
   const result = events.find(e => e.type === 'DUEL_RESULT')!;
   assert.equal(result.winnerId, ids[1]); assert.equal(result.reactionMs, 150);
@@ -56,8 +58,8 @@ test('four real sockets: duel events, phone states, jittered reactions, movement
   assert.equal(events.filter(e => e.type === 'DUEL_RESULT').length, 1);
   assert.equal(otherEvents.length, 0); assert.equal(h.rooms.snapshot(other.created.roomCode).duel, null);
   success(await a.players[1].socket.timeout(1500).emitWithAck('input:move', { seq: 101, x: 1, y: 0 }));
-  state = waitSnapshot(a.host, s => s.players[1].x > done.players[1].x); now = 5850; await state;
-  state = waitSnapshot(a.host, s => s.duel === null); now = 6750; await state;
+  state = waitSnapshot(a.host, s => s.players[1].x > done.players[1].x); now = 5850 + RULES.rushMs; await state;
+  state = waitSnapshot(a.host, s => s.duel === null); now = 6750 + RULES.rushMs; await state;
   let endCount = 0; a.host.on('game:ended', () => endCount++);
   state = waitSnapshot(a.host, s => s.phase === 'ended'); now = 93000; await state; await sleep(30);
   assert.equal(endCount, 1);
@@ -78,18 +80,18 @@ test('network stillness event remains unbound pending approval; early reaction y
   Object.assign(room.players.get(players[1].identity.playerId)!, { x: 520, y: 270 });
   for (const p of players) success(await p.socket.timeout(1500).emitWithAck('player:ready', { calibrated: true }));
   success(await host.timeout(1500).emitWithAck('host:start', { hostToken: created.hostToken }));
-  let state = waitSnapshot(host, s => s.phase === 'playing'); now = 3000; await state;
+  let state = waitSnapshot(host, s => s.phase === 'playing'); now = 3000 + RULES.rushMs; await state;
   success(await players[1].socket.timeout(1500).emitWithAck('input:yank', { seq: 1, ts: EPOCH + now }));
   const serverSocket = h.io.sockets.sockets.get(players[1].socket.id!)!;
   assert.equal(serverSocket.listenerCount('input:duel:foul'), 0, 'no unapproved socket contract is installed');
-  now = 3100;
+  now = 3100 + RULES.rushMs;
   const foulEvent = new Promise<GameEvent>(resolve => host.on('game:event', function receive(e) {
     if (e.type === 'DUEL_FOUL') { host.off('game:event', receive); resolve(e); }
   }));
   success(await players[1].socket.timeout(1500).emitWithAck('input:yank', { seq: 2, ts: EPOCH + now }));
   assert.equal((await foulEvent).actorId, players[1].identity.playerId);
-  state = waitSnapshot(host, s => s.duel?.stage === 'cue'); now = 4000; await state;
-  state = waitSnapshot(host, s => s.duel?.stage === 'done'); now = 5750;
+  state = waitSnapshot(host, s => s.duel?.stage === 'cue'); now = 4000 + RULES.rushMs; await state;
+  state = waitSnapshot(host, s => s.duel?.stage === 'done'); now = 5750 + RULES.rushMs;
   const done = await state;
-  assert.equal(done.players[0].score, 2); assert.equal(done.crown.heldBy, players[0].identity.playerId);
+  assert.equal(done.players[0].score, RULES.rushMs / RULES.holdPointMs + 2); assert.equal(done.crown.heldBy, players[0].identity.playerId);
 });

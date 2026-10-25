@@ -12,8 +12,8 @@ function fixture() {
   ['a', 'b', 'c', 'd'].forEach((id, i) => players.set(id, { id, name: id, color: PLAYER_COLORS[i],
     x: 480 + i * 40, y: 270, score: 0, holding: false, connected: true, ready: true, inDuel: false, wantedId: null }));
   const game = new GameRoom(players, 0);
-  game.start(0); game.advance(3000);
-  const yank = (id: string, seq: number, now = 3000, ts = EPOCH + now) => game.yank(id, { seq, ts }, now, EPOCH + now);
+  game.start(0); game.advance(3000 + RULES.rushMs);
+  const yank = (id: string, seq: number, now = 3000 + RULES.rushMs, ts = EPOCH + now) => game.yank(id, { seq, ts }, now, EPOCH + now);
   return { players, game, yank };
 }
 
@@ -22,28 +22,28 @@ test('yank validates phase, identity, shape, epoch, range and per-event replay h
   assert.equal(game.inRange('a'), false);
   assert.equal(game.inRange('b'), true);
   assert.equal(game.inRange('d'), false);
-  const before = game.snapshot(3000);
+  const before = game.snapshot(3000 + RULES.rushMs);
   assert.equal(errorCode(yank('unknown', 1)), 'UNAUTHORIZED');
   for (const payload of [null, {}, { seq: -1, ts: EPOCH }, { seq: 1.5, ts: EPOCH }, { seq: 1, ts: NaN },
     { seq: 1, ts: Infinity }, { seq: 1, ts: '3000' }, { seq: 1, ts: EPOCH, playerId: 'a' }])
-    assert.equal(errorCode(game.yank('b', payload, 3000, EPOCH + 3000)), 'INVALID_PAYLOAD');
-  assert.equal(errorCode(yank('b', 1, 3000, EPOCH + 1999)), 'STALE_INPUT');
-  assert.equal(errorCode(yank('b', 1, 3000, EPOCH + 3151)), 'STALE_INPUT');
+    assert.equal(errorCode(game.yank('b', payload, 3000 + RULES.rushMs, EPOCH + 3000 + RULES.rushMs)), 'INVALID_PAYLOAD');
+  assert.equal(errorCode(yank('b', 1, 3000 + RULES.rushMs, EPOCH + 1999 + RULES.rushMs)), 'STALE_INPUT');
+  assert.equal(errorCode(yank('b', 1, 3000 + RULES.rushMs, EPOCH + 3151 + RULES.rushMs)), 'STALE_INPUT');
   assert.equal(errorCode(yank('d', 1)), 'NOT_READY');
   assert.equal(errorCode(yank('a', 1)), 'NOT_READY');
-  assert.deepEqual(game.snapshot(3000), before, 'invalid attempts leave scores and ownership unchanged');
-  success(game.move('b', { seq: 100, x: 0, y: 0 }, 3000));
+  assert.deepEqual(game.snapshot(3000 + RULES.rushMs), before, 'invalid attempts leave scores and ownership unchanged');
+  success(game.move('b', { seq: 100, x: 0, y: 0 }, 3000 + RULES.rushMs));
   success(yank('b', 50)); // A reliable yank may arrive behind a newer volatile movement packet.
   assert.equal(players.get('b')!.score, RULES.stealPoints);
-  assert.equal(game.snapshot(3000).crown.heldBy, 'b');
+  assert.equal(game.snapshot(3000 + RULES.rushMs).crown.heldBy, 'b');
   assert.equal(errorCode(yank('b', 50)), 'STALE_INPUT');
   assert.equal(errorCode(yank('b', 49)), 'STALE_INPUT');
-  assert.equal(errorCode(game.move('b', { seq: 99, x: 1, y: 0 }, 3000)), 'STALE_INPUT');
+  assert.equal(errorCode(game.move('b', { seq: 99, x: 1, y: 0 }, 3000 + RULES.rushMs)), 'STALE_INPUT');
   const stolen = game.drainEvents().filter(e => e.type === 'CROWN_STOLEN');
   assert.equal(stolen.length, 1);
   assert.equal(stolen[0].victimId, 'a');
   assert.equal(stolen[0].points, 3);
-  game.reset(3000);
+  game.reset(3000 + RULES.rushMs);
   assert.equal(errorCode(yank('b', 51)), 'INVALID_PHASE');
   assert.equal(game.inRange('c'), false);
 });
@@ -51,20 +51,20 @@ test('yank validates phase, identity, shape, epoch, range and per-event replay h
 test('first simultaneous yank wins; immunity and challenger cooldown use monotonic deadlines', () => {
   const { game, players, yank } = fixture();
   success(yank('b', 10));
-  assert.equal(game.inRange('c', 3000), false);
+  assert.equal(game.inRange('c', 3000 + RULES.rushMs), false);
   assert.equal(errorCode(yank('c', 20)), 'NOT_READY');
-  assert.equal(game.snapshot(3000).crown.heldBy, 'b');
+  assert.equal(game.snapshot(3000 + RULES.rushMs).crown.heldBy, 'b');
   assert.equal(players.get('c')!.score, 0);
-  assert.equal(game.inRange('a', 4999), false);
-  assert.equal(game.inRange('a', 5000), true);
-  assert.equal(game.inRange('c', 5000), false, 'failed in-range challenge cools down for 2500ms');
-  assert.equal(errorCode(yank('c', 21, 5499)), 'NOT_READY');
-  success(yank('c', 22, 5500));
-  assert.equal(game.snapshot(5500).crown.heldBy, 'c');
+  assert.equal(game.inRange('a', 4999 + RULES.rushMs), false);
+  assert.equal(game.inRange('a', 5000 + RULES.rushMs), true);
+  assert.equal(game.inRange('c', 5000 + RULES.rushMs), false, 'failed in-range challenge cools down for 2500ms');
+  assert.equal(errorCode(yank('c', 21, 5499 + RULES.rushMs)), 'NOT_READY');
+  success(yank('c', 22, 5500 + RULES.rushMs));
+  assert.equal(game.snapshot(5500 + RULES.rushMs).crown.heldBy, 'c');
   assert.equal([...players.values()].filter(p => p.holding).length, 1);
   assert.equal(game.drainEvents().filter(e => e.type === 'CROWN_STOLEN').length, 2);
-  game.disconnect('c', 5500);
-  assert.equal(game.inRange('b', 8000), false, 'disconnected holders cannot be challenged');
+  game.disconnect('c', 5500 + RULES.rushMs);
+  assert.equal(game.inRange('b', 8000 + RULES.rushMs), false, 'disconnected holders cannot be challenged');
 });
 
 test('round deadline caps scoring, stops inputs, ranks ties and queues one immutable result', () => {
@@ -156,8 +156,8 @@ test('real Socket.IO: four phones complete pickup, scoring, steals, results and 
   ids.forEach((id, i) => { room.players.get(id)!.x = 480 + i * 40; room.players.get(id)!.y = 270; });
   let next = waitSnapshot(a.host, s => s.phase === 'playing'); now = 3000; await next;
   await sleep(30);
-  assert.equal(phones[0]?.holding, true); assert.equal(phones[1]?.inRange, true); assert.equal(phones[3]?.inRange, false);
-  next = waitSnapshot(a.host, s => s.players[0].score === 1); now = 3500; await next;
+  assert.equal(phones[0]?.holding, true); assert.equal(phones[1]?.inRange, false); assert.equal(phones[3]?.inRange, false);
+  next = waitSnapshot(a.host, s => s.players[0].score === 31); now = 3500 + RULES.rushMs; await next;
   assert.equal(errorCode(await rawAck(a.host, 'input:yank', { seq: 1, ts: EPOCH + now })), 'UNAUTHORIZED');
   success(await a.players[1].socket.timeout(1500).emitWithAck('input:move', { seq: 100, x: 0, y: 0 }));
   next = waitSnapshot(a.host, s => s.crown.heldBy === ids[1]);
@@ -171,7 +171,7 @@ test('real Socket.IO: four phones complete pickup, scoring, steals, results and 
   assert.equal(events.filter(e => e.type === 'CROWN_STOLEN').length, 1);
   next = waitSnapshot(a.host, s => s.phase === 'ended'); now = 93000; await next; await sleep(40);
   assert.equal(ended.length, 1); assert.deepEqual(ended[0].winnerIds, [ids[1]]);
-  assert.equal(ended[0].scores[0].score, 182); // 89.5s possession + 3 steal points.
+  assert.equal(ended[0].scores[0].score, 152); // 74.5s possession + 3 steal points after Rush.
   assert.equal(h.rooms.snapshot(b.created.roomCode).phase, 'lobby');
   assert.ok(h.rooms.snapshot(b.created.roomCode).players.every(p => p.score === 0 && !p.holding));
   next = waitSnapshot(a.host, s => s.phase === 'lobby');

@@ -10,6 +10,8 @@ This flag permits server/host testing with simulated clients. It does **not** ma
 
 ## State machine and eligibility
 
+Opening Rush applies regardless of the duel flag: for `RULES.rushMs` (15,000 ms) after the countdown ends, all yanks are rejected and every phone's `inRange` is false. Movement, pickup and possession scoring continue. At exactly 15 seconds of playing, normal challenge eligibility becomes available, with no extra timer or cooldown from Rush-rejected attempts. The existing 90-second round deadline is unchanged. Timestamp validation and sequence replay protection run before the Rush gate; each rematch gets its own Rush. See [Phase 3 rules](PHASE3.md#direct-steal-rules) and `tests/rush.test.ts` for boundary and protocol coverage.
+
 `IDLE → READY → CUE → DONE → IDLE`, driven by the existing room update loop, with no timers per duel.
 
 An eligible connected challenger within 85 arena units yanks at a connected crown holder. The server checks the playing phase, distinct identities, no existing duel, expired holder immunity and expired challenger cooldown. It consumes the initiation yank once, starts the existing 2,500 ms cooldown, marks the two participants `inDuel`, and emits `DUEL_START` followed by `DUEL_READY`. Crown ownership and steal points do not change at initiation. Outsiders cannot challenge the occupied crown; they keep moving normally.

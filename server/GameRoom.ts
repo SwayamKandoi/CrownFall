@@ -86,7 +86,8 @@ export class GameRoom {
   inRange(id: string, now = this.lastAdvanceAt): boolean {
     const player = this.players.get(id);
     const holder = this.heldBy ? this.players.get(this.heldBy) : undefined;
-    return !this.duel?.busy && this.phase === 'playing' && now < this.countdownEndsAt + RULES.roundMs &&
+    return !this.duel?.busy && this.phase === 'playing' && now >= this.countdownEndsAt + RULES.rushMs &&
+      now < this.countdownEndsAt + RULES.roundMs &&
       Boolean(player?.connected && !player.inDuel && holder?.connected && !holder.inDuel && holder.id !== id &&
         now >= this.immuneUntil && now >= (this.cooldowns.get(id) ?? 0) &&
         Math.hypot(player.x - holder.x, player.y - holder.y) <= RULES.duelRange);
@@ -106,6 +107,8 @@ export class GameRoom {
       return rejected('STALE_INPUT', 'Yank timestamp is stale or outside the synchronized clock window.');
     // The phone shares a counter across events, but delivery may be out of order between streams.
     this.yankSequences.set(id, seq);
+    // Rush starts after countdown; rejected attempts consume sequences but not cooldowns.
+    if (now < this.countdownEndsAt + RULES.rushMs) return rejected('NOT_READY', 'Stealing unlocks after the opening Rush.');
     if (this.duel?.busy) {
       if (!this.duel.active || !this.duel.includes(id)) return rejected('NOT_READY', 'A duel already occupies the crown.');
       const result = this.duel.reaction(id, payload.ts, now, epochNow);
