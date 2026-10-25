@@ -60,12 +60,12 @@ export class RoomManager {
     const room = this.rooms.get(code);
     if (!room) return;
     if (id) {
+      room.game.disconnect(id, this.now());
       const player = room.players.get(id);
       if (player) {
         player.connected = false; player.ready = false;
         if (room.game.phase === 'lobby' && !room.lobbyDisconnects.has(id)) room.lobbyDisconnects.set(id, this.now());
       }
-      room.game.disconnect(id);
     } else room.hostConnected = false;
     room.lastOccupiedAt = this.now();
   }

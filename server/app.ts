@@ -34,13 +34,14 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
       const player = rooms.rooms.get(code)?.players.get(member.playerId);
       if (player) io.to(socketId).emit('phone:state', { phase: snapshot.phase, holding: player.holding, score: player.score, inRange: false, wantedName: null, duel: null });
     }
+    for (const event of room.game.drainEvents()) io.to(code).emit('game:event', event);
   }
   const interval = setInterval(() => {
     const changed = new Set(rooms.advance());
     for (const [code, room] of rooms.rooms) {
       // Publish each new simulation tick at most once; roster/phase changes still publish immediately.
       const ticksSinceSnapshot = room.game.tick - (lastSnapshotTicks.get(room) ?? -Infinity);
-      if (changed.has(code) || ticksSinceSnapshot >= RULES.simulationHz / RULES.snapshotHz) broadcast(code);
+      if (changed.has(code) || room.game.hasPendingOutput || ticksSinceSnapshot >= RULES.simulationHz / RULES.snapshotHz) broadcast(code);
     }
   // Wake twice per fixed step so timer jitter does not skip snapshot boundaries.
   // GameRoom still advances at 30 Hz; unchanged ticks never cause periodic broadcasts.
