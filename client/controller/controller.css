@@ -42,3 +42,9 @@
 .ctl .ctl-avatar.is-picked{border-color:var(--pc);background:#232838;box-shadow:0 0 0 3px rgba(255,255,255,.08)}
 .ctl-name{box-sizing:border-box}
 .ctl-reconnect{position:sticky;top:0;z-index:6;margin:8px 0 0!important;padding:10px 12px;border-radius:10px;background:#3a2f12;color:#f6ce68!important;font-weight:700;text-align:center}
+.ctl-wanted{display:flex;flex-direction:column;align-items:center;gap:4px;margin:10px 0 14px;padding:14px 16px;border-radius:14px;background:#f2e6c9;color:#2a1a0a;transform:rotate(-1.2deg);box-shadow:0 10px 24px rgba(0,0,0,.45)}
+.ctl-wanted-title{font:900 28px system-ui;letter-spacing:.18em;color:#b3261e}
+.ctl-wanted-name{font:900 26px system-ui;color:#2a1a0a;text-transform:uppercase}
+.ctl-wanted-sub{font:600 14px system-ui;text-align:center;color:#4a3420}
+.ctl-wanted.is-hot{outline:4px solid #f6ce68;animation:ctl-wanted-pulse .8s ease-in-out infinite alternate}
+@keyframes ctl-wanted-pulse{from{transform:rotate(-1.2deg) scale(1)}to{transform:rotate(-1.2deg) scale(1.04)}}

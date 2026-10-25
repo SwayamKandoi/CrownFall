@@ -114,6 +114,7 @@ export class Announcer {
         if (e.winnerId) this.say(`${this.name(e.winnerId)} wins the draw${e.reactionMs != null ? ` in ${Math.round(e.reactionMs)} milliseconds` : ''}!`, true);
         else this.say('No winner. The crown stays put.', true);
         break;
+      case 'REVENGE': this.say(`Revenge! ${this.name(e.actorId)} takes it back from ${this.name(e.victimId)}!`, true); if (!quiet) sfx.steal(); break;
       case 'PLAYER_LEFT': break;
       default: break;
     }

@@ -19,6 +19,7 @@ const YANK_COOLDOWN_MS = 600;
 const TILT_FREEZE_MS = 300;    // a yank jerks the phone; don't let it steer
 const NAME_KEY = 'crownfall:name';
 const AVATAR_KEY = 'crownfall:avatar';
+const REVENGE_WINDOW_MS = 12_000; // matches RULES.revengeMs on the server; the server stays the judge
 const DUEL_ARM_MS = 800;        // ignore the tail of the yank that started the duel
 const STILL_WARN = 4;           // m/s² during HOLD STILL that earns a (local-only) warning
 
@@ -62,6 +63,8 @@ export function ControllerPage() {
   const [banner, setBanner] = useState('');
   const [duelInfo, setDuelInfo] = useState<DuelInfo>();
   const [stillWarn, setStillWarn] = useState(false);
+  const [wantedSince, setWantedSince] = useState<number>();
+  const [, setTick] = useState(0);
 
   const socket = useRef<GameSocket>();
   const clock = useRef<ClockSync>();
@@ -116,6 +119,8 @@ export function ControllerPage() {
       const prev = phoneRef.current;
       phoneRef.current = next;
       setPhone(next);
+      if (next.wantedName && next.wantedName !== prev?.wantedName) { setWantedSince(performance.now()); vibrate([60, 40, 60]); }
+      if (!next.wantedName && prev?.wantedName) setWantedSince(undefined);
       if (resumedRef.current) {
         // After a resume the server keeps game players but clears lobby readiness.
         resumedRef.current = false;
@@ -143,6 +148,7 @@ export function ControllerPage() {
       window.dispatchEvent(new CustomEvent('crownfall:game-event', { detail: e }));
       const me = playerRef.current?.playerId;
       const inDuel = Boolean(phoneRef.current?.duel) || e.type.startsWith('DUEL_');
+      if (e.type === 'REVENGE' && e.actorId === me) { showFlash('gold', '😤 REVENGE!', 1300); vibrate([40, 40, 40, 40, 120]); sfx.win(); }
       if (e.type === 'CROWN_STOLEN' && e.actorId === me && !inDuel) { showFlash('gold', '🫳 YOU STOLE IT', 1000); vibrate([40, 40, 80]); sfx.win(); }
       if (!me) return;
       const updateDuel = (patch: Partial<DuelInfo>) => {
@@ -169,6 +175,12 @@ export function ControllerPage() {
     const rttId = setInterval(() => clock.current && Number.isFinite(clock.current.rtt) && setRtt(clock.current.rtt), 1000);
     return () => { clearInterval(rttId); clock.current?.dispose(); s.disconnect(); clearTimeout(flashTimer.current); };
   }, []);
+
+  useEffect(() => {
+    if (!phone?.wantedName) return;
+    const id = setInterval(() => setTick(t => t + 1), 250);
+    return () => clearInterval(id);
+  }, [phone?.wantedName]);
 
   // Sensors run from calibration onward; inputs only go out once in-game.
   const sensorsOn = step === 'calibrate' || step === 'ready' || step === 'in-game';
@@ -368,7 +380,7 @@ export function ControllerPage() {
               <p className="ctl-kicker">{holding ? 'YOU HAVE THE CROWN' : phone?.inRange ? 'IN RANGE' : 'HUNT'}</p>
               <h1 className="ctl-status">{holding ? '👑 Run!' : phone?.inRange ? 'YANK NOW' : 'Get the crown'}</h1>
               <p className="ctl-score">{phone?.score ?? 0}<span> pts</span></p>
-              {phone?.wantedName && <p>Wanted: <b>{phone.wantedName}</b></p>}
+              {phone?.wantedName && !holding && <WantedPoster name={phone.wantedName} since={wantedSince} inRange={Boolean(phone.inRange)} />}
               <Pad move={move} small />
             </>
           ) : phase === 'countdown' ? (
@@ -397,6 +409,22 @@ export function ControllerPage() {
 
       {error && <p className="ctl-err">{error}</p>}
     </main>
+  );
+}
+
+function WantedPoster({ name, since, inRange }: { name: string; since?: number; inRange: boolean }) {
+  const left = since == null ? null : Math.max(0, Math.ceil((REVENGE_WINDOW_MS - (performance.now() - since)) / 1000));
+  const hot = left == null || left > 0;
+  return (
+    <div className={`ctl-wanted ${inRange && hot ? 'is-hot' : ''}`} role="status">
+      <span className="ctl-wanted-title">WANTED</span>
+      <span className="ctl-wanted-name">{name}</span>
+      <span className="ctl-wanted-sub">
+        {!hot ? 'Revenge window closed, but they still have your crown.'
+          : inRange ? 'YANK NOW for double points!'
+          : `Stole your crown. Steal it back${left != null ? ` in ${left}s` : ''} for double points.`}
+      </span>
+    </div>
   );
 }
 
