@@ -5,6 +5,7 @@ import type { ClientToServerEvents, ServerToClientEvents, CreateResult, Snapshot
 import { RULES, AVATARS, isAvatarId } from '../../shared/constants.js';
 import { ArenaView } from './ArenaView.js';
 import { DuelOverlay } from './DuelOverlay.js';
+import { WantedBoard } from './WantedBoard.js';
 import { Announcer } from './announcer.js';
 import { unlockAudio } from '../audio/sfx.js';
 import './host.css';
@@ -55,7 +56,7 @@ export function HostPage() {
       if (event.type === 'DUEL_START') { setDuelResult(undefined); setDuelFouls([]); }
       if (event.type === 'DUEL_FOUL' && event.actorId) setDuelFouls(previous => previous.includes(event.actorId!) ? previous : [...previous, event.actorId!]);
       if (event.type === 'DUEL_RESULT') setDuelResult(event);
-      if (['CROWN_PICKUP', 'CROWN_STOLEN', 'CROWN_DROPPED'].includes(event.type)) {
+      if (['CROWN_PICKUP', 'CROWN_STOLEN', 'CROWN_DROPPED', 'REVENGE', 'GEM_TAKEN'].includes(event.type)) {
         clearTimeout(bannerTimer); setBanner(event);
         bannerTimer = setTimeout(() => setBanner(undefined), 2500);
       }
@@ -113,10 +114,12 @@ export function HostPage() {
   const seconds = Math.ceil((snapshot?.remainingMs ?? RULES.roundMs) / 1000);
   const timer = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
   const nameFor = (id?: string) => players.find(p => p.id === id)?.name ?? 'A rival';
-  const bannerText = banner?.type === 'CROWN_STOLEN' ? `${nameFor(banner.actorId)} stole the crown from ${nameFor(banner.victimId)}! +${banner.points}` :
+  const bannerText = banner?.type === 'REVENGE' ? `REVENGE! ${nameFor(banner.actorId)} takes it back! +${banner.points}` :
+    banner?.type === 'GEM_TAKEN' ? `${nameFor(banner.actorId)} unlocked the vault! +${banner.points}` :
+    banner?.type === 'CROWN_STOLEN' ? `${nameFor(banner.actorId)} stole the crown from ${nameFor(banner.victimId)}! +${banner.points}` :
     banner?.type === 'CROWN_PICKUP' ? `${nameFor(banner.actorId)} claimed the crown!` : 'The crown is up for grabs!';
   const winners = ended?.scores.filter(p => ended.winnerIds.includes(p.playerId)).map(p => p.name).join(' & ');
-  return <main className="cf-host">
+  return <main className={'cf-host cf-phase-' + phase}>
     <header className="cf-header">
       <a href="/host" className="cf-brand"><CrownIcon/> CROWNFALL</a>
       <button className="cf-copy cf-mute" aria-pressed={muted} onClick={() => { unlockAudio(); const next = !muted; setMuted(next); announcer.current?.setMuted(next); if (!next) { announcer.current?.prime(); announcer.current?.say('Announcer on.'); } }}>{muted ? 'Sound off' : 'Sound on'}</button>
@@ -136,10 +139,13 @@ export function HostPage() {
       </div>
       <div className="cf-layout">
         <section className="cf-stage">
-          <div className="cf-stage-heading"><span><i className="cf-live-dot"/>{phase === 'lobby' ? 'WARM-UP ARENA' : phase === 'countdown' ? 'COUNTDOWN' : phase === 'ended' ? 'FINAL ARENA' : 'LIVE ARENA'}</span><time className="cf-round-timer" aria-label="Time remaining">{timer}</time></div>
+          <div className="cf-stage-heading"><span><i className="cf-live-dot"/>{phase === 'lobby' ? 'WARM-UP ARENA' : phase === 'countdown' ? 'COUNTDOWN' : phase === 'ended' ? 'FINAL ARENA' : 'LIVE ARENA'}</span>
+            {snapshot?.lastStand && <strong className="cf-last-stand" role="status">LAST STAND! · 2× POINTS</strong>}
+            {snapshot?.gem && <span className="cf-gem-status">◆ VAULT +{snapshot.lastStand ? 10 : 5} · {Math.ceil(snapshot.gem.expiresMs / 1000)}s</span>}
+            <time className="cf-round-timer" aria-label="Time remaining">{timer}</time></div>
           <div className="cf-arena-wrap">
             <ArenaView snapshot={snapshot}/>
-            {banner && phase === 'playing' && !snapshot?.duel && <div className="cf-game-banner" role="status">{bannerText}</div>}
+            {banner && phase === 'playing' && !snapshot?.duel && <div className={'cf-game-banner' + (banner.type === 'REVENGE' ? ' cf-revenge-banner' : '')} role="status">{bannerText}</div>}
             <DuelOverlay snapshot={snapshot} result={duelResult} fouls={duelFouls}/>
             {phase === 'countdown' && <div className="cf-countdown" aria-live="assertive"><span>READY YOUR PHONES</span><strong>{Math.max(1, seconds)}</strong><span>Keep your eyes on the big screen</span></div>}
             {phase === 'ended' && <div className="cf-results" aria-live="polite"><CrownIcon/><span>{ended ? ended.winnerIds.length > 1 ? 'TIED WINNERS' : 'WINNER' : 'ROUND COMPLETE'}</span><h2>{winners || 'Finalizing scores...'}</h2><p>{ended?.scores[0]?.score ?? 0} points</p></div>}
@@ -147,6 +153,7 @@ export function HostPage() {
             {(!connected || delayed) && <div className="cf-arena-warning">Connection interrupted - waiting for live state</div>}
           </div>
           <div className="cf-arena-footer"><span>{phase === 'lobby' ? 'Tilt to explore. Calibrate your phone to become ready.' : phase === 'countdown' ? 'Movement pauses during the countdown.' : phase === 'ended' ? 'Start a rematch, then ready up on the same phones.' : 'Hold: +1 every 0.5s. Steal: +3. The crown gets heavier as you hold it.'}</span><span>{players.filter(p => p.connected).length} / 8 ONLINE</span></div>
+          {phase === 'playing' && <WantedBoard players={players}/>}
           <div className="cf-instructions"><div><b>01</b><strong>Claim the crown</strong><p>Tilt toward the crown to pick it up.</p></div><div><b>02</b><strong>Close the gap</strong><p>Get close, then yank when your phone says ready.</p></div><div><b>03</b><strong>Keep it moving</strong><p>Stealing grants two seconds of protection.</p></div></div>
         </section>
         <aside className="cf-sidebar">

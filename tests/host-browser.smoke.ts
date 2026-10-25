@@ -10,6 +10,7 @@ import { success } from './support/socketHarness.js';
 import { createApp } from '../server/app.js';
 import { RULES } from '../shared/constants.js';
 import { duelBrowserSmoke } from './support/duelBrowserSmoke.js';
+import { phase6BrowserSmoke } from './support/phase6BrowserSmoke.js';
 
 let clockOffset = 0;
 const now = () => performance.now() + clockOffset;
@@ -118,6 +119,7 @@ try {
   console.log('PASS: built host routes, QR, two-player minimum, four independent players, pickup/steal banners, scoreboard, timer, winners, rematch, responsive layout and one Phaser canvas; no browser runtime errors.');
   console.log('Screenshots: dist/verification/host-{lobby,playing,narrow,steal,results}.png');
   await duelBrowserSmoke(browser);
+  await phase6BrowserSmoke(browser);
 } finally {
   clearTimeout(deadline);
   streams.forEach(clearInterval);

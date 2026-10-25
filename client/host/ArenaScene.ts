@@ -12,6 +12,9 @@ export class ArenaScene extends Phaser.Scene {
   private lastDuelStage?: string;
   private taunts = new Map<string, { text: Phaser.GameObjects.Text; until: number }>();
   private pendingTaunts: string[] = [];
+  private finale?: Phaser.GameObjects.Graphics;
+  private gem?: Phaser.GameObjects.Graphics;
+  private sparkles = new Set<Phaser.GameObjects.Text>();
   constructor() { super('CrownfallArena'); }
   accept(snapshot: Snapshot): void { this.buffer.push(snapshot); }
   create(): void {
@@ -24,6 +27,12 @@ export class ArenaScene extends Phaser.Scene {
     graphics.lineStyle(1, 0xcaa65e, 0.25).strokeCircle(480, 270, 62);
     graphics.lineStyle(1, 0xcaa65e, 0.15).strokeCircle(480, 270, 85);
     this.duelShade = this.add.rectangle(480, 270, 960, 540, 0x050a12, 0).setDepth(2);
+    this.finale = this.add.graphics().setDepth(1);
+    this.gem = this.add.graphics().setDepth(5).setVisible(false);
+    this.gem.fillStyle(0x5eead4, 0.15).fillCircle(0, 0, 28);
+    this.gem.fillStyle(0x6fffe5).fillPoints([new Phaser.Geom.Point(0, -18), new Phaser.Geom.Point(14, 0),
+      new Phaser.Geom.Point(0, 18), new Phaser.Geom.Point(-14, 0)], true);
+    this.gem.lineStyle(2, 0xffffff, 0.9).lineBetween(0, -14, -9, 0).lineBetween(-9, 0, 0, 12);
     this.crown = this.add.graphics().setDepth(10).setPosition(480, 270);
     this.crown.fillStyle(0xf2ca78).fillPoints([
       new Phaser.Geom.Point(-18, -12), new Phaser.Geom.Point(-9, -4), new Phaser.Geom.Point(0, -19),
@@ -33,6 +42,12 @@ export class ArenaScene extends Phaser.Scene {
     const onGameEvent = (e: Event) => {
       const detail = (e as CustomEvent<GameEvent>).detail;
       if (detail?.type === 'TAUNT' && detail.actorId) this.pendingTaunts.push(detail.actorId);
+      if (detail?.type === 'GEM_TAKEN' && detail.x !== undefined && detail.y !== undefined) {
+        const sparkle = this.add.text(detail.x, detail.y, `✦ +${detail.points}`, { fontSize: '25px', color: '#8ffff0', fontFamily: 'system-ui', fontStyle: 'bold' }).setOrigin(0.5).setDepth(21);
+        this.sparkles.add(sparkle);
+        this.tweens.add({ targets: sparkle, y: detail.y - 50, alpha: 0, duration: 900,
+          onComplete: () => { this.sparkles.delete(sparkle); sparkle.destroy(); } });
+      }
     };
     window.addEventListener('crownfall:game-event', onGameEvent);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { window.removeEventListener('crownfall:game-event', onGameEvent); this.buffer.clear(); this.avatars.clear(); this.taunts.clear(); this.pendingTaunts = []; this.lastDuelStage = undefined; });
@@ -48,6 +63,18 @@ export class ArenaScene extends Phaser.Scene {
   update(): void {
     const state = this.buffer.sample();
     if (!state) return;
+    this.finale?.clear();
+    if (state.arenaScale < 1 || state.lastStand) {
+      const left = RULES.arenaWidth * (1 - state.arenaScale) / 2;
+      const top = RULES.arenaHeight * (1 - state.arenaScale) / 2;
+      this.finale?.fillStyle(0x4c1020, 0.5).fillRect(0, 0, left, 540).fillRect(960 - left, 0, left, 540)
+        .fillRect(left, 0, 960 - left * 2, top).fillRect(left, 540 - top, 960 - left * 2, top);
+      this.finale?.lineStyle(4, 0xff657c, 0.75 + 0.2 * Math.sin(this.time.now / 240))
+        .strokeRect(left + 2, top + 2, 956 - left * 2, 536 - top * 2);
+    }
+    this.gem?.setVisible(Boolean(state.gem && state.phase === 'playing'));
+    if (state.gem) this.gem?.setPosition(state.gem.x, state.gem.y).setScale(1 + 0.08 * Math.sin(this.time.now / 180));
+    if (state.phase !== 'playing') for (const sparkle of this.sparkles) { this.tweens.killTweensOf(sparkle); sparkle.destroy(); this.sparkles.delete(sparkle); }
     const active = state.duel && state.duel.stage !== 'done';
     this.duelShade?.setFillStyle(0x050a12, active ? 0.35 : 0);
     if (state.duel?.stage === 'cue' && this.lastDuelStage !== 'cue') this.cameras.main.flash(110, 255, 220, 150);

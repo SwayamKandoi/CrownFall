@@ -604,3 +604,42 @@ body {
     gap:4px
   }
 }
+
+/* Phase 6 keeps arena effects light and places target information outside live play. */
+.cf-stage-heading { gap:10px; flex-wrap:wrap }
+.cf-stage-heading .cf-gem-status { color:#76f9dd; font-size:11px }
+.cf-last-stand { color:#ff8e9f; font-size:clamp(10px,1.2vw,16px); animation:cf-finale-pulse 1s ease-in-out infinite alternate }
+.cf-revenge-banner { border-color:#ff8e9f; color:#ffb8c5; animation:cf-revenge-in .3s ease-out }
+.cf-wanted { display:flex; gap:12px; margin-top:12px; align-items:center; color:var(--cf-gold) }
+.cf-wanted>strong { font-size:11px; letter-spacing:.1em }
+.cf-wanted>div { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; flex:1; min-width:0 }
+.cf-wanted article { border-left:3px solid; background:#182432; padding:7px 9px; min-width:0 }
+.cf-wanted article span,.cf-wanted article b { display:block; overflow-wrap:anywhere; font-size:12px }
+.cf-wanted article span { color:var(--cf-muted); font-size:10px }
+.cf-phase-playing .cf-instructions,.cf-phase-ended .cf-instructions { display:none }
+@keyframes cf-finale-pulse { to { text-shadow:0 0 12px #ff657caa } }
+@keyframes cf-revenge-in { from { transform:translateY(-8px); opacity:.3 } to { transform:translateY(0); opacity:1 } }
+@media(prefers-reduced-motion:reduce) { .cf-last-stand,.cf-revenge-banner { animation:none } }
+@media(max-width:1100px) { .cf-wanted>div { grid-template-columns:repeat(2,minmax(0,1fr)) } }
+
+.cf-player-name { white-space:normal; overflow-wrap:anywhere; line-height:1.35 }
+@media(min-width:761px) and (max-height:800px) {
+  .cf-host { padding:14px 24px }
+  .cf-header { padding-bottom:12px }
+  .cf-room-heading { margin:16px 0 }
+  .cf-room-heading h1 { font-size:27px; margin-top:5px }
+  .cf-layout { gap:16px; grid-template-columns:minmax(0,1fr) 290px }
+  .cf-canvas { aspect-ratio:auto; height:min(430px,calc(100vh - 280px)) }
+  .cf-sidebar { gap:10px }
+  .cf-join-panel { display:grid; grid-template-columns:108px minmax(0,1fr); gap:4px 12px; padding:10px; text-align:left }
+  .cf-join-panel>div,.cf-join-link,.cf-join-panel .cf-copy { grid-column:2; margin:0 }
+  .cf-join-panel h2 { font-size:16px; margin:4px 0 }
+  .cf-join-panel .cf-qr { grid-column:1; grid-row:1 / span 3; width:108px }
+  .cf-roster { padding:12px }
+  .cf-roster-heading { margin-bottom:8px }
+  .cf-roster ul { gap:4px }
+  .cf-roster li { min-height:28px }
+  .cf-ready-count { margin:8px 0 }
+  .cf-start { padding:10px; margin-top:8px }
+  .cf-instructions,.cf-footer { display:none }
+}
