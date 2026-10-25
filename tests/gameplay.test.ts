@@ -117,6 +117,28 @@ test('authorized rematch resets gameplay, preserves identities and cleans old of
   assert.equal(replacement.color, joined[3].color);
 });
 
+test('real sockets deliver queued end events before a same-update lobby reset', { timeout: 5000 }, async t => {
+  let now = 0;
+  const h = await harness(t, { now: () => now });
+  const { host, created, players } = await h.room(2);
+  for (const p of players) success(await p.socket.timeout(1500).emitWithAck('player:ready', { calibrated: true }));
+  success(await host.timeout(1500).emitWithAck('host:start', { hostToken: created.hostToken }));
+  const order: string[] = [];
+  players[0].socket.on('game:event', e => order.push(e.type));
+  players[0].socket.on('game:ended', () => order.push('ended'));
+  players[0].socket.on('phone:state', p => order.push(p.phase));
+  const room = h.rooms.rooms.get(created.roomCode)!;
+  Object.assign(room.players.get(players[0].identity.playerId)!, { x: 480, y: 270 });
+  const lobby = waitSnapshot(host, s => s.phase === 'lobby');
+  // Force completion/reset together before the broadcaster can drain the completed round.
+  now = 93000; success(h.rooms.start(created.roomCode, created.hostToken));
+  await lobby; await sleep(30);
+  assert.equal(order.filter(value => value === 'ended').length, 1);
+  assert.ok(order.indexOf('CROWN_PICKUP') < order.indexOf('ended'));
+  assert.ok(order.indexOf('ended') < order.lastIndexOf('lobby'));
+  assert.equal(order.at(-1), 'lobby', 'old results or flashes cannot overwrite the rematch screen');
+});
+
 test('real Socket.IO: four phones complete pickup, scoring, steals, results and rematch in isolated rooms', { timeout: 10000 }, async t => {
   let now = 0;
   const h = await harness(t, { now: () => now, epochNow: () => EPOCH + now });

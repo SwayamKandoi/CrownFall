@@ -5,6 +5,7 @@ export class SnapshotBuffer {
   private frames: { at: number; state: Snapshot }[] = [];
   push(state: Snapshot, at = performance.now()): void {
     if (this.frames.length && state.tick < this.frames.at(-1)!.state.tick) return;
+    if (state.phase === 'lobby' && this.frames.at(-1)?.state.phase !== 'lobby') this.clear();
     this.frames.push({ at, state });
     if (this.frames.length > 30) this.frames.shift();
   }
@@ -18,12 +19,15 @@ export class SnapshotBuffer {
     }
     const amount = after.at > before.at ? Math.max(0, Math.min(1, (target - before.at) / (after.at - before.at))) : 1;
     const latest = this.frames.at(-1)!.state;
-    return { ...latest, players: latest.players.map(player => {
+    const players = latest.players.map(player => {
       const from = before.state.players.find(p => p.id === player.id);
       const to = after.state.players.find(p => p.id === player.id);
       if (!from || !to) return { ...player };
       return { ...player, x: from.x + (to.x - from.x) * amount, y: from.y + (to.y - from.y) * amount };
-    }) };
+    });
+    // Ownership is always the latest server decision; attach its visual to the smoothed holder.
+    const holder = players.find(p => p.id === latest.crown.heldBy);
+    return { ...latest, players, crown: { ...latest.crown, ...(holder ? { x: holder.x, y: holder.y } : {}) } };
   }
   clear(): void { this.frames = []; }
 }

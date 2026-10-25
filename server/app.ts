@@ -30,14 +30,24 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
     const room = rooms.rooms.get(code);
     if (!room) return;
     const snapshot = rooms.snapshot(code);
+    const results = room.game.drainEnded();
+    const events = room.game.drainEvents();
+    // A deadline can pass while host:start resets the room. Deliver the old result before
+    // the new lobby state so phones cannot re-open the ended screen after their reset.
+    if (snapshot.phase === 'lobby') {
+      for (const event of events) io.to(code).emit('game:event', event);
+      for (const result of results) io.to(code).emit('game:ended', result);
+    }
     lastSnapshotTicks.set(room, snapshot.tick);
     io.to(code).emit('state:snapshot', snapshot);
     for (const [socketId, member] of memberships) if (member.code === code && member.playerId) {
       const player = rooms.rooms.get(code)?.players.get(member.playerId);
       if (player) io.to(socketId).emit('phone:state', { phase: snapshot.phase, holding: player.holding, score: player.score, inRange: room.game.inRange(player.id, now()), wantedName: null, duel: null });
     }
-    for (const event of room.game.drainEvents()) io.to(code).emit('game:event', event);
-    for (const result of room.game.drainEnded()) io.to(code).emit('game:ended', result);
+    if (snapshot.phase !== 'lobby') {
+      for (const event of events) io.to(code).emit('game:event', event);
+      for (const result of results) io.to(code).emit('game:ended', result);
+    }
   }
   const interval = setInterval(() => {
     const changed = new Set(rooms.advance());

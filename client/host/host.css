@@ -452,8 +452,19 @@ body {
 .cf-start {
   width:100%;
   font-size:12px;
-  padding:13px
+  padding:13px;
+  margin-top:12px
 }
+.cf-round-timer { color:var(--cf-gold); font-size:24px; font-variant-numeric:tabular-nums; letter-spacing:.03em }
+.cf-score { color:var(--cf-gold); font-size:20px; font-variant-numeric:tabular-nums }
+.cf-crown-mark { color:var(--cf-gold) }
+.cf-roster li.is-holder { border-radius:6px; background:#edc78214; box-shadow:0 0 0 1px #edc78255; padding:4px }
+.cf-game-banner { position:absolute; top:16px; left:5%; right:5%; text-align:center; padding:12px; border:1px solid #edc78288; background:#182432ed; color:var(--cf-gold); border-radius:8px; font-size:clamp(12px,1.6vw,20px); pointer-events:none }
+.cf-results { position:absolute; inset:0; background:#0c1421dc; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:20px; color:var(--cf-gold) }
+.cf-results>span { margin:12px 0; font-size:11px; letter-spacing:.18em }
+.cf-results h2 { font-size:clamp(22px,4vw,52px); line-height:1.1; overflow-wrap:anywhere; margin:0; max-width:100% }
+.cf-results p { font-size:18px; margin:14px 0 }
+.cf-sidebar:has(> :only-child) { grid-template-columns:1fr }
 .cf-error {
   background:#4d302b;
   border:1px solid #92644c;

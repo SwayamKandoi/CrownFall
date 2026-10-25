@@ -3,10 +3,11 @@ import { RULES } from '../../shared/constants.js';
 import type { Snapshot } from '../../shared/events.js';
 import { SnapshotBuffer } from './interpolation.js';
 
-interface Avatar { root: Phaser.GameObjects.Container; label: Phaser.GameObjects.Text; ready: Phaser.GameObjects.Arc }
+interface Avatar { root: Phaser.GameObjects.Container; label: Phaser.GameObjects.Text; ready: Phaser.GameObjects.Arc; halo: Phaser.GameObjects.Arc; color: number }
 export class ArenaScene extends Phaser.Scene {
   private buffer = new SnapshotBuffer();
   private avatars = new Map<string, Avatar>();
+  private crown?: Phaser.GameObjects.Graphics;
   constructor() { super('CrownfallArena'); }
   accept(snapshot: Snapshot): void { this.buffer.push(snapshot); }
   create(): void {
@@ -18,18 +19,19 @@ export class ArenaScene extends Phaser.Scene {
     graphics.lineStyle(2, 0x5b7087).strokeRoundedRect(18, 18, 924, 504, 14);
     graphics.lineStyle(1, 0xcaa65e, 0.25).strokeCircle(480, 270, 62);
     graphics.lineStyle(1, 0xcaa65e, 0.15).strokeCircle(480, 270, 85);
-    // Decorative placeholder only. Crown ownership/pickup is a future server phase.
-    graphics.fillStyle(0xf2ca78, 0.85).fillPoints([
-      new Phaser.Geom.Point(462, 258), new Phaser.Geom.Point(471, 266), new Phaser.Geom.Point(480, 251),
-      new Phaser.Geom.Point(489, 266), new Phaser.Geom.Point(498, 258), new Phaser.Geom.Point(494, 279),
-      new Phaser.Geom.Point(466, 279),
+    this.crown = this.add.graphics().setDepth(10).setPosition(480, 270);
+    this.crown.fillStyle(0xf2ca78).fillPoints([
+      new Phaser.Geom.Point(-18, -12), new Phaser.Geom.Point(-9, -4), new Phaser.Geom.Point(0, -19),
+      new Phaser.Geom.Point(9, -4), new Phaser.Geom.Point(18, -12), new Phaser.Geom.Point(14, 9),
+      new Phaser.Geom.Point(-14, 9),
     ], true);
-    this.add.text(480, 298, 'THE CROWN', { fontFamily: 'system-ui', fontSize: '10px', color: '#b8a47c' }).setOrigin(0.5);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.buffer.clear(); this.avatars.clear(); });
   }
   update(): void {
     const state = this.buffer.sample();
     if (!state) return;
+    this.crown?.setPosition(state.crown.x, state.crown.y - (state.crown.heldBy ? 22 : 0))
+      .setAlpha(state.phase === 'lobby' || state.phase === 'countdown' ? 0.4 : 1);
     const ids = new Set(state.players.map(p => p.id));
     for (const [id, avatar] of this.avatars) if (!ids.has(id)) { avatar.root.destroy(); this.avatars.delete(id); }
     for (const player of state.players) {
@@ -42,7 +44,7 @@ export class ArenaScene extends Phaser.Scene {
         const eyes = this.add.text(0, -3, '• •', { fontSize: '13px', fontFamily: 'system-ui', color: '#10202b' }).setOrigin(0.5);
         const label = this.add.text(0, -37, player.name, { fontSize: '13px', fontFamily: 'system-ui', color: '#f4f5fa', backgroundColor: '#111c2a' }).setOrigin(0.5);
         const ready = this.add.circle(18, -16, 4, 0x78dab3).setStrokeStyle(1, 0x111c2a);
-        avatar = { root: this.add.container(player.x, player.y, [shadow, halo, body, eyes, label, ready]), label, ready };
+        avatar = { root: this.add.container(player.x, player.y, [shadow, halo, body, eyes, label, ready]), label, ready, halo, color };
         this.avatars.set(player.id, avatar);
       }
       avatar.root.setPosition(player.x, player.y).setAlpha(player.connected ? 1 : 0.35);
@@ -52,7 +54,8 @@ export class ArenaScene extends Phaser.Scene {
         Math.max(halfLabel, Math.min(RULES.arenaWidth - halfLabel, player.x)) - player.x,
         player.y < 54 ? 37 : -37,
       );
-      avatar.ready.setVisible(Boolean(player.connected && player.ready));
+      avatar.ready.setVisible(Boolean(state.phase === 'lobby' && player.connected && player.ready));
+      avatar.halo.setStrokeStyle(player.holding ? 4 : 1, player.holding ? 0xf2ca78 : avatar.color, player.holding ? 1 : 0.4);
     }
   }
 }
