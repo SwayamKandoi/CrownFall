@@ -10,14 +10,14 @@ import { RoomManager, failure, type Room } from './RoomManager.js';
 import { exact, finite, roomCode, RateLimit } from './validation.js';
 
 interface Membership { code: string; playerId?: string }
-export function createApp(options: { publicOrigin?: string; clientDir?: string; emptyTtlMs?: number; now?: () => number; epochNow?: () => number } = {}) {
+export function createApp(options: { publicOrigin?: string; clientDir?: string; emptyTtlMs?: number; now?: () => number; epochNow?: () => number; duelsEnabled?: boolean; random?: () => number } = {}) {
   const app = express();
   app.disable('x-powered-by');
   const http = createServer(app);
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(http, { maxHttpBufferSize: 16_384 });
   const now = options.now ?? (() => performance.now());
   const epochNow = options.epochNow ?? (() => Date.now());
-  const rooms = new RoomManager(now, options.emptyTtlMs);
+  const rooms = new RoomManager(now, options.emptyTtlMs, { duelsEnabled: options.duelsEnabled, random: options.random, epochNow });
   const memberships = new Map<string, Membership>();
   app.get('/health', (_req, res) => res.json({ ok: true, service: 'crownfall' }));
   const clientDir = options.clientDir ?? fileURLToPath(new URL('../client/', import.meta.url));
@@ -42,7 +42,7 @@ export function createApp(options: { publicOrigin?: string; clientDir?: string; 
     io.to(code).emit('state:snapshot', snapshot);
     for (const [socketId, member] of memberships) if (member.code === code && member.playerId) {
       const player = rooms.rooms.get(code)?.players.get(member.playerId);
-      if (player) io.to(socketId).emit('phone:state', { phase: snapshot.phase, holding: player.holding, score: player.score, inRange: room.game.inRange(player.id, now()), wantedName: null, duel: null });
+      if (player) io.to(socketId).emit('phone:state', { phase: snapshot.phase, holding: player.holding, score: player.score, inRange: room.game.inRange(player.id, now()), wantedName: null, duel: room.game.phoneDuel(player.id) });
     }
     if (snapshot.phase !== 'lobby') {
       for (const event of events) io.to(code).emit('game:event', event);

@@ -1,7 +1,7 @@
 import { randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { PLAYER_COLORS, RULES } from '../shared/constants.js';
 import type { ActionError, CreateResult, JoinResult, PlayerState, Snapshot } from '../shared/events.js';
-import { GameRoom } from './GameRoom.js';
+import { GameRoom, type GameOptions } from './GameRoom.js';
 
 export interface Room {
   code: string; hostToken: string; players: Map<string, PlayerState>;
@@ -12,14 +12,14 @@ export const failure = (code: ActionError['error']['code'], message: string): Ac
 export const OK = { ok: true } as const;
 export class RoomManager {
   readonly rooms = new Map<string, Room>();
-  constructor(private now = () => performance.now(), private emptyTtlMs = 60_000) {}
+  constructor(private now = () => performance.now(), private emptyTtlMs = 60_000, private gameOptions: GameOptions = {}) {}
   create(origin: string): CreateResult {
     let code: string;
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     do { code = Array.from({ length: 5 }, () => alphabet[randomInt(alphabet.length)]).join(''); } while (this.rooms.has(code));
     const hostToken = randomBytes(32).toString('hex');
     const players = new Map<string, PlayerState>();
-    this.rooms.set(code, { code, hostToken, players, game: new GameRoom(players, this.now()), hostConnected: true, lastOccupiedAt: this.now(), lobbyDisconnects: new Map() });
+    this.rooms.set(code, { code, hostToken, players, game: new GameRoom(players, this.now(), this.gameOptions), hostConnected: true, lastOccupiedAt: this.now(), lobbyDisconnects: new Map() });
     return { roomCode: code, hostToken, joinUrl: origin + '/play/' + code };
   }
   join(code: string, name: string): JoinResult | ActionError {
