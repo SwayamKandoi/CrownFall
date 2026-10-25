@@ -106,8 +106,8 @@ export class StillnessCheck {
 }
 
 /** Android: real vibration. iOS Safari ignores navigator.vibrate. */
-export function vibrate(ms = 40): boolean {
-  return typeof navigator.vibrate === 'function' ? navigator.vibrate(ms) : false;
+export function vibrate(pattern: number | number[] = 40): boolean {
+  return typeof navigator.vibrate === 'function' ? navigator.vibrate(pattern) : false;
 }
 
 let hapticLabel: HTMLLabelElement | undefined;
