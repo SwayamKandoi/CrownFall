@@ -725,3 +725,29 @@ body {
 @keyframes cf-count-pop { 0% { transform:scale(1.25); opacity:.6 } 25% { transform:scale(1); opacity:1 } }
 @keyframes cf-bob { 0%,100% { transform:translateY(0) } 50% { transform:translateY(-6px) } }
 @media(prefers-reduced-motion:reduce) { .cf-countdown strong,.cf-results>svg,.cf-game-banner { animation:none } }
+
+/* ===== Lobby, podium, confetti ===== */
+.cf-phase-lobby .cf-qr { width:min(240px,100%) }
+.cf-phase-lobby .cf-room-code strong { font-size:clamp(44px,4.6vw,72px) }
+.cf-phase-lobby .cf-roster li { animation:cf-join-pop .45s cubic-bezier(.34,1.56,.64,1) }
+@keyframes cf-join-pop { from { transform:scale(.6); opacity:0 } to { transform:scale(1); opacity:1 } }
+.cf-results { overflow:hidden }
+.cf-results>*:not(.cf-confetti) { position:relative; z-index:1 }
+.cf-results h2 { font-size:clamp(28px,4.2vw,60px) }
+.cf-podium { display:flex; align-items:flex-end; justify-content:center; gap:12px; margin:14px 0 8px; width:min(520px,100%) }
+.cf-step { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; min-width:0; animation:cf-rise .6s cubic-bezier(.34,1.56,.64,1) both }
+.cf-step-2 { animation-delay:.25s } .cf-step-3 { animation-delay:.45s } .cf-step-1 { animation-delay:.7s }
+.cf-step-avatar { width:58px; height:58px; border-radius:50%; display:grid; place-items:center; font-size:34px; background:#151935; box-shadow:0 0 0 4px var(--pc) }
+.cf-step-1 .cf-step-avatar { width:74px; height:74px; font-size:44px; box-shadow:0 0 0 5px var(--cf-gold), 0 0 30px #f6ce68aa }
+.cf-step-name { font-weight:700; color:#f4f1e8; font-size:clamp(12px,1.3vw,18px); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.cf-step-score { font-family:var(--cf-display); color:#c9cfe3; font-size:clamp(14px,1.5vw,22px) }
+.cf-step-block { width:100%; display:grid; place-items:center; font-family:var(--cf-display); font-size:clamp(22px,2.6vw,38px); color:#14161f; border-radius:12px 12px 4px 4px }
+.cf-step-1 .cf-step-block { height:clamp(60px,9vh,110px); background:var(--cf-gold) }
+.cf-step-2 .cf-step-block { height:clamp(44px,6.5vh,80px); background:#c9cfe3 }
+.cf-step-3 .cf-step-block { height:clamp(32px,4.8vh,60px); background:#d89b6a }
+@keyframes cf-rise { from { transform:translateY(40px); opacity:0 } to { transform:translateY(0); opacity:1 } }
+.cf-confetti { position:absolute; inset:0; pointer-events:none; z-index:0 }
+.cf-confetti i { position:absolute; top:-20px; width:9px; height:15px; border-radius:2px; opacity:.9; animation:cf-fall linear infinite }
+@keyframes cf-fall { from { translate:0 -20px; rotate:0deg } to { translate:30px 110vh; rotate:540deg } }
+@media(min-width:761px) and (max-height:800px) { .cf-podium { margin:6px 0 4px } .cf-step-avatar { width:44px; height:44px; font-size:26px } .cf-step-1 .cf-step-avatar { width:54px; height:54px; font-size:32px } }
+@media(prefers-reduced-motion:reduce) { .cf-confetti { display:none } .cf-step,.cf-roster li { animation:none } }

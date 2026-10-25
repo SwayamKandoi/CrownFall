@@ -8,7 +8,7 @@ export function layoutPlayerLabels(players: LabelInput[]): Map<string, LabelBox>
     const width = Math.min(RULES.arenaWidth - 12, player.width + 8), height = player.height + 4;
     let fallback: LabelBox | undefined;
     search: for (let row = 0; row < 18; row++) for (const side of [0, -1, 1]) {
-      const offset = row % 2 ? 46 + Math.floor(row / 2) * height : -46 - row / 2 * height;
+      const offset = row % 2 ? 54 + Math.floor(row / 2) * height : -54 - row / 2 * height;
       const box = { x: Math.max(6, Math.min(RULES.arenaWidth - width - 6, player.x - width / 2 + side * (width + 6))),
         y: Math.max(4, Math.min(RULES.arenaHeight - height - 4, player.y + offset - height / 2)), width, height };
       fallback ??= box;

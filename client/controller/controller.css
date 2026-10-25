@@ -71,7 +71,8 @@
 .ctl-crown-float{font-size:84px;text-align:center;filter:drop-shadow(0 0 26px rgba(246,206,104,.7));animation:ctl-bob 1.6s ease-in-out infinite;margin:-4px 0 0}
 
 /* Flashes + banner */
-.ctl-flash-gold{background:#7a5a10!important}.ctl-flash-red{background:#6e1620!important}
+.ctl-flash-gold{background:#7a5a10!important;animation:ctl-glow .5s ease-out}
+.ctl-flash-red{background:#6e1620!important;box-shadow:inset 0 0 0 6px #ff6b6b, inset 0 0 80px #ff6b6b88!important;animation:ctl-shake .45s cubic-bezier(.36,.07,.19,.97)}
 .ctl-flash-yank{background:#1d3a4a!important}.ctl-flash-miss{background:#24283a!important}
 .ctl-banner{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);text-align:center;
   font:400 46px var(--display);letter-spacing:.04em;text-shadow:0 4px 24px #000;pointer-events:none;animation:ctl-pop .25s ease-out;padding:0 16px}
@@ -122,6 +123,8 @@
 
 .ctl-err{color:#ff8a8a;background:#2a1619;border-radius:10px;padding:12px}
 
+@keyframes ctl-shake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(5px)}30%,50%,70%{transform:translateX(-10px) rotate(-1deg)}40%,60%{transform:translateX(10px) rotate(1deg)}}
+@keyframes ctl-glow{from{box-shadow:inset 0 0 0 6px #f6ce68, inset 0 0 120px #f6ce68aa}to{box-shadow:inset 0 0 0 4px #f6ce68}}
 @keyframes ctl-pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
 @keyframes ctl-bump{0%{transform:scale(1.18)}100%{transform:scale(1)}}
 @keyframes ctl-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}

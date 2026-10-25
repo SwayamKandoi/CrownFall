@@ -10,7 +10,7 @@ import { RoundStats } from './RoundStats.js';
 import { ReplayPanel } from './ReplayPanel.js';
 import { MAX_PRESENTATION_EVENTS, STAT_EVENTS } from './roundStatistics.js';
 import { Announcer } from './announcer.js';
-import { unlockAudio } from '../audio/sfx.js';
+import { sfx, unlockAudio } from '../audio/sfx.js';
 import './host.css';
 
 type HostSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -20,6 +20,7 @@ function CrownIcon() {
 export function HostPage() {
   const socketRef = useRef<HostSocket>();
   const lastSnapshot = useRef(0);
+  const lobbyCount = useRef(0);
   const announcer = useRef<Announcer>();
   announcer.current ??= new Announcer();
   const [muted, setMuted] = useState(false);
@@ -54,6 +55,8 @@ export function HostPage() {
     connection.on('state:snapshot', state => {
       lastSnapshot.current = performance.now(); setDelayed(false); setSnapshot(state);
       announcer.current?.snapshot(state);
+      if (state.phase === 'lobby' && state.players.length > lobbyCount.current && !announcer.current?.muted) sfx.pickup();
+      lobbyCount.current = state.players.length;
       if (!state.duel) { setDuelResult(undefined); setDuelFouls(previous => previous.length ? [] : previous); }
       if (state.phase === 'lobby' || state.phase === 'countdown') { setEnded(undefined); setBanner(undefined); setRoundEvents(previous => previous.length ? [] : previous); setReplay(undefined); fouls.clear(); }
     });
@@ -158,7 +161,7 @@ export function HostPage() {
             {banner && phase === 'playing' && !snapshot?.duel && <div className={'cf-game-banner' + (banner.type === 'REVENGE' ? ' cf-revenge-banner' : '')} role="status">{bannerText}</div>}
             <DuelOverlay snapshot={snapshot} result={duelResult} fouls={duelFouls}/>
             {phase === 'countdown' && <div className="cf-countdown" aria-live="assertive"><span>READY YOUR PHONES</span><strong>{Math.max(1, seconds)}</strong><span>Keep your eyes on the big screen</span></div>}
-            {phase === 'ended' && <div className="cf-results" aria-live="polite"><CrownIcon/><span>{ended ? ended.winnerIds.length > 1 ? 'TIED WINNERS' : 'WINNER' : 'ROUND COMPLETE'}</span><h2>{winners || 'Finalizing scores...'}</h2><p>{ended?.scores[0]?.score ?? 0} points</p>{ended && <RoundStats events={roundEvents} players={players}/>}</div>}
+            {phase === 'ended' && <div className="cf-results" aria-live="polite">{ended && <Confetti/>}<CrownIcon/><span>{ended ? ended.winnerIds.length > 1 ? 'TIED WINNERS' : 'WINNER' : 'ROUND COMPLETE'}</span><h2>{winners || 'Finalizing scores...'}</h2>{ended && <HostPodium scores={ended.scores} players={players}/>}{ended && <RoundStats events={roundEvents} players={players}/>}</div>}
             {!players.length && <div className="cf-empty-arena"><span>YOUR KINGDOM AWAITS.</span><p>Scan the code to claim your place.</p></div>}
             {(!connected || delayed) && <div className="cf-arena-warning">Connection interrupted - waiting for live state</div>}
           </div>
@@ -192,4 +195,27 @@ export function HostPage() {
     {error && <p className="cf-error" role="alert">{error}</p>}
     <footer className="cf-footer"><span>BUILT FOR A ROOM FULL OF PEOPLE.</span><span>2-8 PLAYERS - MOTION CONTROLLED</span></footer>
   </main>;
+}
+
+const CONFETTI_COLORS = ['#f6ce68', '#ff6b6b', '#5ad1ff', '#79dfbc', '#c49bff', '#ffffff'];
+/** Pure-CSS confetti: fixed pseudo-random layout so re-renders don't reshuffle it. */
+function Confetti() {
+  return <div className="cf-confetti" aria-hidden="true">{Array.from({ length: 36 }, (_, i) =>
+    <i key={i} style={{ left: `${(i * 37) % 100}%`, background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      animationDelay: `${(i * 0.13) % 1.6}s`, animationDuration: `${2.4 + (i % 5) * 0.35}s`, transform: `rotate(${i * 29}deg)` }}/>)}</div>;
+}
+function HostPodium({ scores, players }: { scores: GameEnded['scores']; players: Snapshot['players'] }) {
+  const top = [...scores].sort((a, b) => b.score - a.score).slice(0, 3);
+  const order = [top[1], top[0], top[2]];
+  return <div className="cf-podium">{order.map((entry, i) => {
+    if (!entry) return <div key={i} className="cf-step cf-step-empty"/>;
+    const place = top.indexOf(entry) + 1;
+    const player = players.find(p => p.id === entry.playerId);
+    return <div key={entry.playerId} className={'cf-step cf-step-' + place} style={{ ['--pc' as string]: player?.color ?? '#f6ce68' }}>
+      <span className="cf-step-avatar">{isAvatarId(player?.avatar) ? AVATARS[player.avatar] : '🙂'}</span>
+      <span className="cf-step-name">{entry.name}</span>
+      <span className="cf-step-score">{entry.score}</span>
+      <span className="cf-step-block">{place}</span>
+    </div>;
+  })}</div>;
 }
